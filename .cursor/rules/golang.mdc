@@ -1,0 +1,410 @@
+---
+globs: ["**/*.go"]
+description: "Golang 编码规范规则 - 遵循 Go 官方编码规范和最佳实践，确保代码风格一致性和可维护性"
+alwaysApply: true
+---
+
+# Golang 编码规范
+
+本文档定义了项目中的 Golang 编码规范，所有 Go 代码都应遵循这些规则。
+
+**重要提示：本项目要求所有注释、错误消息、日志输出、用户提示、测试用例描述等文本内容均使用中文。代码标识符（函数名、变量名、类型名、包名等）保持英文，但所有面向用户的文本内容必须使用中文。**
+
+## 代码格式化
+
+- **必须使用 `gofmt` 格式化所有代码**。代码提交前必须运行 `gofmt -w .` 或使用编辑器自动格式化
+- 使用制表符（Tab）进行缩进，不要使用空格
+- 行尾不要有多余的空格
+- 文件末尾保留一个空行
+
+## 命名规范
+
+### 包命名
+- 包名使用小写字母，简短且有意义
+- 避免使用下划线或混合大小写
+- 包名应该是导入路径的最后一段
+- 避免使用通用名称如 `util`、`common`、`helper`
+
+### 变量和函数命名
+- 使用驼峰式命名（camelCase），首字母小写
+- 缩写词应保持全大写或全小写，如 `URL` 或 `url`，不要使用 `Url`
+- 函数名应该是动词或动词短语，如 `GetUser`、`CreateOrder`
+- 布尔变量和函数应使用 `is`、`has`、`can` 等前缀，如 `isValid`、`hasPermission`
+
+### 常量命名
+- 使用驼峰式命名，首字母小写
+- 如果常量在包级别，可以使用首字母大写导出
+- 枚举类型常量可以使用全大写加下划线，如 `MAX_RETRY_COUNT`
+
+### 类型命名
+- 使用驼峰式命名，首字母大写（导出类型）
+- 接口名通常以 `er` 结尾，如 `Reader`、`Writer`，或使用描述性名称
+- 结构体名应该是名词或名词短语
+
+### 导出和非导出
+- 首字母大写的标识符是导出的（public）
+- 首字母小写的标识符是非导出的（private）
+- 仅在需要被其他包使用时才导出
+
+## 注释规范
+
+**重要：本项目要求所有注释、错误消息、日志输出、用户提示等文本内容均使用中文。代码标识符（函数名、变量名、类型名等）保持英文，但所有面向用户的文本内容必须使用中文。**
+
+### 包注释
+- 每个包都应该有包注释，位于 `package` 声明之前
+- 包注释应该说明包的用途
+- 对于 `main` 包，注释应该说明程序的功能
+
+```go
+// Package http 提供 HTTP 客户端和服务器的实现。
+package http
+```
+
+### 函数注释
+- 所有导出的函数都应该有注释
+- 注释应该以函数名开头，使用完整的句子
+- 注释应该说明函数的功能、参数和返回值
+
+```go
+// GetUser 根据 ID 从数据库中获取用户。
+// 如果用户不存在，则返回错误。
+func GetUser(id int64) (*User, error) {
+    // ...
+}
+```
+
+### 类型注释
+- 所有导出的类型都应该有注释
+- 注释应该说明类型的用途
+
+```go
+// User 表示系统中的用户。
+type User struct {
+    ID   int64
+    Name string
+}
+```
+
+### 行内注释
+- 使用 `//` 进行单行注释
+- 避免使用 `/* */` 块注释，除非是文档注释
+- 注释应该解释"为什么"而不是"是什么"
+- **所有行内注释必须使用中文**
+
+## 导入规范
+
+### 导入顺序
+导入应该按以下顺序分组，组之间用空行分隔：
+1. 标准库包
+2. 第三方包
+3. 项目内部包
+
+```go
+import (
+    "fmt"
+    "net/http"
+    "time"
+
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+
+    "yourproject/internal/config"
+    "yourproject/pkg/logger"
+)
+```
+
+### 导入别名
+- 仅在包名冲突时使用别名
+- 别名应该有意义，避免使用单字母别名（除非是标准约定）
+
+```go
+import (
+    "database/sql"
+    
+    sqlx "github.com/jmoiron/sqlx"
+)
+```
+
+## 错误处理
+
+**注意：所有错误消息必须使用中文。**
+
+### 错误检查
+- **永远不要忽略错误**。必须检查所有返回的错误
+- 使用 `if err != nil` 检查错误
+- 错误处理应该靠近错误发生的地方
+- **所有错误消息必须使用中文**
+
+```go
+// 好的做法
+data, err := ioutil.ReadFile(filename)
+if err != nil {
+    return fmt.Errorf("读取文件失败: %w", err)
+}
+
+// 不好的做法
+data, _ := ioutil.ReadFile(filename) // 错误：忽略了错误
+```
+
+### 错误包装
+- 使用 `fmt.Errorf` 和 `%w` 动词包装错误，保留错误链
+- 错误消息应该清晰、具体，包含上下文信息
+- **所有错误消息必须使用中文**
+
+```go
+if err != nil {
+    return fmt.Errorf("处理用户 %d 失败: %w", userID, err)
+}
+```
+
+### 自定义错误
+- 对于可预期的错误，定义错误变量
+- 使用 `errors.New` 或 `fmt.Errorf` 创建错误
+- **所有错误消息必须使用中文**
+
+```go
+var (
+    ErrUserNotFound = errors.New("用户不存在")
+    ErrInvalidInput = errors.New("无效的输入")
+)
+```
+
+## 代码组织
+
+### 文件结构
+- 每个文件应该只包含一个主要类型或功能
+- 文件应该按以下顺序组织：
+  1. 包声明
+  2. 导入语句
+  3. 常量
+  4. 变量
+  5. 类型定义
+  6. 函数和方法
+
+### 函数长度
+- 函数应该简短，专注于单一职责
+- 建议函数不超过 50 行，复杂函数不超过 100 行
+- 如果函数过长，考虑拆分为多个小函数
+
+### 文件长度
+- 单个文件不应超过 1000 行
+- 如果文件过长，考虑拆分为多个文件
+
+## 并发安全
+
+### 互斥锁
+- 使用 `sync.Mutex` 或 `sync.RWMutex` 保护共享资源
+- 锁的持有时间应该尽可能短
+- 使用 `defer` 确保锁被释放
+
+```go
+type SafeCounter struct {
+    mu    sync.RWMutex
+    count int
+}
+
+func (c *SafeCounter) Increment() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.count++
+}
+```
+
+### Channel 使用
+- 使用 channel 进行 goroutine 间通信
+- 明确 channel 的方向（发送、接收或双向）
+- 使用 `context.Context` 管理 goroutine 生命周期
+
+```go
+func worker(ctx context.Context, jobs <-chan Job, results chan<- Result) {
+    for {
+        select {
+        case job := <-jobs:
+            // 处理任务
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+```
+
+## 性能优化
+
+### 字符串操作
+- 大量字符串拼接使用 `strings.Builder` 或 `bytes.Buffer`
+- 避免在循环中使用 `+` 拼接字符串
+
+```go
+// 好的做法
+var builder strings.Builder
+for _, s := range strings {
+    builder.WriteString(s)
+}
+result := builder.String()
+
+// 不好的做法
+result := ""
+for _, s := range strings {
+    result += s // 性能差
+}
+```
+
+### 切片和映射
+- 如果知道切片大小，使用 `make` 预分配容量
+- 避免不必要的内存分配
+
+```go
+// 好的做法
+items := make([]Item, 0, 100) // 预分配容量
+
+// 不好的做法
+var items []Item // 可能导致多次重新分配
+```
+
+### 接口使用
+- 避免不必要的接口定义
+- 接口应该小而专注（遵循接口隔离原则）
+
+## 测试规范
+
+**注意：所有测试用例描述、测试错误消息必须使用中文。**
+
+### 测试文件
+- 测试文件以 `_test.go` 结尾
+- 测试函数以 `Test` 开头
+- 基准测试函数以 `Benchmark` 开头
+- 示例函数以 `Example` 开头
+
+### 测试组织
+- 使用表驱动测试（table-driven tests）处理多个测试用例
+- 测试应该独立，不依赖执行顺序
+- 使用 `t.Helper()` 标记辅助函数
+
+```go
+func TestParseUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        want    *User
+        wantErr bool
+    }{
+        {
+            name:  "有效用户",
+            input: `{"id":1,"name":"张三"}`,
+            want:  &User{ID: 1, Name: "张三"},
+        },
+        // 更多测试用例...
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := ParseUser(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ParseUser() error = %v, wantErr %v", err, tt.wantErr)
+                return
+            }
+            if !reflect.DeepEqual(got, tt.want) {
+                t.Errorf("ParseUser() = %v, want %v", got, tt.want)
+            }
+        })
+    }
+}
+```
+
+## 结构体和接口
+
+### 结构体标签
+- 使用反引号包裹结构体标签
+- JSON 标签使用小写字母和下划线，如 `json:"user_id"`
+- 提供必要的验证标签
+
+```go
+type User struct {
+    ID       int64  `json:"id" db:"id"`
+    Username string `json:"username" db:"username" validate:"required,min=3,max=20"`
+    Email    string `json:"email" db:"email" validate:"required,email"`
+}
+```
+
+### 接口设计
+- 接口应该小而专注
+- 接口应该由使用者定义，而不是实现者
+- 避免过度使用接口
+
+## 其他规范
+
+### 常量定义
+- 使用 `const` 定义常量
+- 相关常量可以组织在一起
+
+```go
+const (
+    DefaultPort    = 8080
+    DefaultTimeout = 30 * time.Second
+    MaxRetries     = 3
+)
+```
+
+### 变量初始化
+- 使用 `var` 声明零值变量
+- 使用短变量声明 `:=` 进行初始化和赋值
+
+```go
+var count int // 零值初始化
+
+name := "张三" // 短变量声明
+```
+
+### 空值检查
+- 使用 `nil` 检查指针、切片、映射、channel 和接口
+- 使用零值检查基本类型
+
+```go
+if user == nil {
+    return ErrUserNotFound
+}
+
+if len(items) == 0 {
+    return nil
+}
+```
+
+### 延迟执行
+- 使用 `defer` 确保资源清理
+- `defer` 语句应该紧跟在资源获取之后
+
+```go
+file, err := os.Open(filename)
+if err != nil {
+    return err
+}
+defer file.Close()
+```
+
+## 工具和检查
+
+### 代码检查工具
+- 使用 `golangci-lint` 进行代码检查
+- 使用 `go vet` 检查常见错误
+- 使用 `go test -race` 进行竞态条件检测
+
+### 依赖管理
+- 使用 Go Modules 管理依赖
+- 定期更新依赖，修复安全漏洞
+- 避免使用未维护的第三方包
+
+## 总结
+
+遵循以上规范可以确保代码的一致性、可读性和可维护性。在编写代码时，应该：
+
+1. **始终使用中文编写所有注释、错误消息、日志输出、用户提示等文本内容**
+2. 始终使用 `gofmt` 格式化代码
+3. 遵循命名规范，使用有意义的名称（代码标识符保持英文）
+4. 编写清晰的注释，特别是导出的函数和类型（注释必须使用中文）
+5. 正确处理错误，不要忽略错误（错误消息必须使用中文）
+6. 保持函数简短，专注于单一职责
+7. 编写测试，确保代码质量（测试用例描述和错误消息必须使用中文）
+8. 考虑并发安全性
+9. 注意性能，但不要过早优化
+
+**特别强调：代码标识符（函数名、变量名、类型名、包名等）使用英文，但所有面向用户的文本内容（注释、错误消息、日志输出、用户提示、测试描述等）必须使用中文。**

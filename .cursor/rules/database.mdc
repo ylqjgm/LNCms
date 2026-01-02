@@ -1,0 +1,955 @@
+---
+globs: ["**/*.sql", "**/migrations/**", "**/schema/**", "**/database/**"]
+description: "PostgreSQL 数据库设计规范规则 - 遵循 PostgreSQL 通用设计规范，合理设计数据库性能，注意元数据的合理配置"
+alwaysApply: true
+---
+
+# PostgreSQL 数据库设计规范
+
+本文档定义了项目中 PostgreSQL 数据库设计的规范要求，包括命名规范、表结构设计、索引设计、性能优化和元数据配置等。
+
+## 命名规范
+
+### 数据库命名
+
+- 使用小写字母、数字和下划线
+- 名称应具有描述性，清晰表达数据库用途
+- 避免使用 PostgreSQL 保留字
+- 示例：`lncms_production`、`lncms_development`、`lncms_test`
+
+### 表命名
+
+- 使用小写字母、数字和下划线
+- 使用复数形式（如 `users`、`articles`）
+- 名称应清晰表达表的用途
+- 避免使用缩写，除非是广泛认知的缩写
+- 关联表使用两个表名的组合，按字母顺序排列，如 `user_roles`、`article_tags`
+- 示例：
+  - ✅ `users`、`articles`、`comments`、`user_profiles`
+  - ❌ `user`、`article`、`User`、`Article`
+
+### 字段命名
+
+- 使用小写字母、数字和下划线
+- 名称应清晰表达字段的用途
+- 布尔类型字段使用 `is_`、`has_`、`can_` 等前缀
+- 时间戳字段使用 `_at` 后缀（如 `created_at`、`updated_at`）
+- 外键字段使用 `_id` 后缀，格式为 `关联表名_id`（如 `user_id`、`article_id`）
+- 避免使用 PostgreSQL 保留字
+- 示例：
+  - ✅ `user_id`、`created_at`、`is_active`、`email_address`
+  - ❌ `userId`、`createdAt`、`isActive`、`email`
+
+### 索引命名
+
+- 格式：`idx_表名_字段名` 或 `idx_表名_字段名1_字段名2`（复合索引）
+- 唯一索引：`uk_表名_字段名`
+- 主键索引：`pk_表名`
+- 部分索引：`idx_表名_字段名_条件描述`
+- 示例：
+  - ✅ `idx_users_email`、`idx_articles_user_id_created_at`、`uk_users_username`
+  - ❌ `users_email_idx`、`index_users_email`
+
+### 约束命名
+
+- 主键约束：`pk_表名`
+- 外键约束：`fk_表名_关联表名`
+- 唯一约束：`uk_表名_字段名`
+- 检查约束：`ck_表名_字段名_条件描述`
+- 非空约束：通常不命名，使用数据库默认命名
+- 示例：
+  - ✅ `pk_users`、`fk_articles_user_id`、`uk_users_email`、`ck_users_age_positive`
+
+### 序列命名
+
+- 格式：`seq_表名_字段名`
+- PostgreSQL 自动创建的序列通常为 `表名_字段名_seq`
+- 示例：`seq_users_id`、`users_id_seq`
+
+### 函数和存储过程命名
+
+- 使用小写字母、数字和下划线
+- 函数名应清晰表达功能
+- 使用动词开头，如 `get_`、`create_`、`update_`、`delete_`
+- 示例：`get_user_by_id`、`create_user_profile`、`update_user_status`
+
+## 表结构设计
+
+### 字段类型选择
+
+#### 数值类型
+
+- **整数类型**：
+  - `SMALLINT`：-32768 到 32767，占用 2 字节
+  - `INTEGER` 或 `INT`：-2147483648 到 2147483647，占用 4 字节（推荐用于 ID 和计数）
+  - `BIGINT`：-9223372036854775808 到 9223372036854775807，占用 8 字节（推荐用于大数值和自增主键）
+- **精确数值类型**：
+  - `NUMERIC(p, s)` 或 `DECIMAL(p, s)`：精确数值，p 为精度，s 为小数位数（推荐用于金额、百分比等需要精确计算的场景）
+- **浮点类型**：
+  - `REAL`：单精度浮点数，占用 4 字节
+  - `DOUBLE PRECISION`：双精度浮点数，占用 8 字节（不推荐用于需要精确计算的场景）
+
+#### 字符串类型
+
+- **定长字符串**：
+  - `CHAR(n)`：固定长度字符串，不足部分用空格填充（不推荐使用）
+- **变长字符串**：
+  - `VARCHAR(n)`：可变长度字符串，最大长度为 n（推荐用于有长度限制的字段）
+  - `TEXT`：无长度限制的字符串（推荐用于长文本、描述等字段）
+- **选择原则**：
+  - 长度固定且较短（如状态码、类型标识）：使用 `VARCHAR(n)`
+  - 长度可变但有限制（如用户名、邮箱）：使用 `VARCHAR(n)`
+  - 长度不确定或较长（如文章内容、描述）：使用 `TEXT`
+
+#### 日期时间类型
+
+- `DATE`：日期（年-月-日）
+- `TIME`：时间（时:分:秒）
+- `TIMESTAMP`：日期和时间（推荐用于记录创建时间、更新时间）
+- `TIMESTAMPTZ`：带时区的日期和时间（推荐用于需要时区信息的场景）
+- `INTERVAL`：时间间隔
+
+#### 布尔类型
+
+- `BOOLEAN`：布尔值，取值为 `TRUE`、`FALSE` 或 `NULL`
+- 推荐使用 `BOOLEAN` 而不是 `INTEGER` 或 `CHAR(1)` 来表示布尔值
+
+#### JSON 类型
+
+- `JSON`：存储 JSON 数据，不验证格式
+- `JSONB`：存储 JSON 数据，以二进制格式存储，支持索引和查询（推荐使用）
+- 推荐使用 `JSONB` 用于存储结构化但不需要固定 schema 的数据
+
+#### 数组类型
+
+- 任何数据类型都可以定义为数组，如 `INTEGER[]`、`TEXT[]`
+- 适用于存储多个值的场景，但要注意查询性能
+
+#### UUID 类型
+
+- `UUID`：通用唯一标识符
+- 推荐用于分布式系统中的主键，使用 `gen_random_uuid()` 生成
+
+### 主键设计
+
+- **自增主键**：
+  - 使用 `BIGSERIAL` 或 `SERIAL`（推荐 `BIGSERIAL`）
+  - 适用于单机系统，性能好，但不利于分布式系统
+- **UUID 主键**：
+  - 使用 `UUID` 类型，配合 `gen_random_uuid()` 函数
+  - 适用于分布式系统，但索引性能略低于自增主键
+- **复合主键**：
+  - 仅在业务逻辑确实需要时使用
+  - 避免过度使用复合主键
+- **主键命名**：
+  - 统一使用 `id` 作为主键字段名
+  - 主键约束命名为 `pk_表名`
+
+```sql
+-- 自增主键示例
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(100) NOT NULL
+);
+
+-- UUID 主键示例
+CREATE TABLE articles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(200) NOT NULL,
+    content TEXT
+);
+```
+
+### 外键设计
+
+- **外键字段命名**：
+  - 格式：`关联表名_id`（去掉表名的复数形式）
+  - 示例：`user_id`、`article_id`、`category_id`
+- **外键约束**：
+  - 必须定义外键约束以确保数据完整性
+  - 外键约束命名为 `fk_表名_关联表名`
+- **级联操作**：
+  - `ON DELETE CASCADE`：删除主表记录时，自动删除从表记录
+  - `ON DELETE SET NULL`：删除主表记录时，将从表外键设置为 NULL
+  - `ON DELETE RESTRICT`：删除主表记录时，如果存在关联记录则禁止删除（默认）
+  - `ON UPDATE CASCADE`：更新主表主键时，自动更新从表外键
+- **索引**：
+  - 外键字段必须创建索引以提高查询性能
+
+```sql
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    category_id BIGINT,
+    title VARCHAR(200) NOT NULL,
+    CONSTRAINT fk_articles_user_id FOREIGN KEY (user_id) 
+        REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_articles_category_id FOREIGN KEY (category_id) 
+        REFERENCES categories(id) ON DELETE SET NULL
+);
+
+-- 为外键字段创建索引
+CREATE INDEX idx_articles_user_id ON articles(user_id);
+CREATE INDEX idx_articles_category_id ON articles(category_id);
+```
+
+### 默认值设计
+
+- **时间戳字段**：
+  - `created_at`：使用 `DEFAULT CURRENT_TIMESTAMP`
+  - `updated_at`：使用触发器自动更新（推荐）或应用层更新
+- **布尔字段**：
+  - 根据业务需求设置默认值，如 `is_active BOOLEAN DEFAULT TRUE`
+- **状态字段**：
+  - 设置合理的默认状态值
+- **避免使用函数作为默认值**：
+  - 对于需要动态计算的默认值，建议在应用层处理
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建触发器自动更新 updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+```
+
+### 约束设计
+
+- **非空约束**：
+  - 对于必填字段，必须使用 `NOT NULL` 约束
+  - 提高数据质量和查询性能
+- **唯一约束**：
+  - 对于需要唯一性的字段，使用 `UNIQUE` 约束
+  - 唯一约束会自动创建唯一索引
+- **检查约束**：
+  - 使用 `CHECK` 约束确保数据有效性
+  - 如：`CHECK (age >= 0 AND age <= 150)`、`CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')`
+- **默认值约束**：
+  - 为字段设置合理的默认值
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    age INTEGER,
+    status VARCHAR(20) DEFAULT 'active',
+    CONSTRAINT uk_users_username UNIQUE (username),
+    CONSTRAINT uk_users_email UNIQUE (email),
+    CONSTRAINT ck_users_age CHECK (age >= 0 AND age <= 150),
+    CONSTRAINT ck_users_status CHECK (status IN ('active', 'inactive', 'suspended'))
+);
+```
+
+### 表注释
+
+- 每个表必须添加注释，说明表的用途
+- 使用 `COMMENT ON TABLE` 语句添加注释
+
+```sql
+COMMENT ON TABLE users IS '用户表，存储系统用户的基本信息';
+COMMENT ON TABLE articles IS '文章表，存储用户发布的文章内容';
+```
+
+## 索引设计
+
+### 主键索引
+
+- 主键约束会自动创建唯一索引
+- 主键索引命名：`pk_表名`
+- 无需手动创建主键索引
+
+### 唯一索引
+
+- 唯一约束会自动创建唯一索引
+- 唯一索引命名：`uk_表名_字段名`
+- 用于确保字段值的唯一性
+
+```sql
+CREATE UNIQUE INDEX uk_users_email ON users(email);
+CREATE UNIQUE INDEX uk_users_username ON users(username);
+```
+
+### 普通索引
+
+- 为经常用于查询条件的字段创建索引
+- 为外键字段创建索引（必须）
+- 索引命名：`idx_表名_字段名`
+- **索引选择原则**：
+  - 经常出现在 `WHERE` 子句中的字段
+  - 经常用于 `JOIN` 的字段
+  - 经常用于 `ORDER BY` 的字段
+  - 经常用于 `GROUP BY` 的字段
+
+```sql
+CREATE INDEX idx_articles_user_id ON articles(user_id);
+CREATE INDEX idx_articles_created_at ON articles(created_at);
+CREATE INDEX idx_articles_status ON articles(status);
+```
+
+### 复合索引
+
+- 为多个字段的组合查询创建复合索引
+- 索引字段顺序很重要：将选择性高的字段放在前面
+- 遵循最左前缀原则
+- 索引命名：`idx_表名_字段1_字段2`
+
+```sql
+-- 适用于查询：WHERE user_id = ? AND status = ? ORDER BY created_at DESC
+CREATE INDEX idx_articles_user_id_status_created_at 
+    ON articles(user_id, status, created_at DESC);
+```
+
+### 部分索引
+
+- 只为满足特定条件的行创建索引
+- 适用于数据分布不均匀的场景
+- 可以减少索引大小，提高查询性能
+
+```sql
+-- 只为活跃用户创建索引
+CREATE INDEX idx_users_active_email ON users(email) WHERE is_active = TRUE;
+
+-- 只为已发布的文章创建索引
+CREATE INDEX idx_articles_published_created_at 
+    ON articles(created_at) WHERE status = 'published';
+```
+
+### 表达式索引
+
+- 为表达式或函数结果创建索引
+- 适用于经常使用函数查询的场景
+
+```sql
+-- 为小写的用户名创建索引
+CREATE INDEX idx_users_lower_username ON users(LOWER(username));
+
+-- 为日期部分创建索引
+CREATE INDEX idx_articles_date_created ON articles(DATE(created_at));
+```
+
+### 索引维护
+
+- **定期分析索引使用情况**：
+  - 使用 `pg_stat_user_indexes` 视图查看索引使用统计
+  - 删除未使用的索引
+- **监控索引大小**：
+  - 使用 `pg_indexes_size()` 函数查看索引大小
+  - 避免创建过多不必要的索引
+- **重建索引**：
+  - 定期使用 `REINDEX` 重建索引，提高性能
+  - 对于大表，使用 `REINDEX CONCURRENTLY` 在线重建
+
+```sql
+-- 查看索引使用情况
+SELECT 
+    schemaname,
+    tablename,
+    indexname,
+    idx_scan,
+    idx_tup_read,
+    idx_tup_fetch
+FROM pg_stat_user_indexes
+WHERE schemaname = 'public'
+ORDER BY idx_scan;
+
+-- 查看索引大小
+SELECT 
+    schemaname,
+    tablename,
+    indexname,
+    pg_size_pretty(pg_relation_size(indexrelid)) AS index_size
+FROM pg_stat_user_indexes
+WHERE schemaname = 'public'
+ORDER BY pg_relation_size(indexrelid) DESC;
+
+-- 重建索引（在线）
+REINDEX INDEX CONCURRENTLY idx_articles_user_id;
+```
+
+## 性能优化
+
+### 分区表设计
+
+- **何时使用分区表**：
+  - 表数据量非常大（通常超过几千万行）
+  - 数据有明显的分区键（如时间、地区）
+  - 查询经常只涉及部分分区
+- **分区策略**：
+  - **范围分区**：按时间范围分区（推荐用于时间序列数据）
+  - **列表分区**：按离散值分区（如地区、状态）
+  - **哈希分区**：按哈希值分区（适用于数据分布均匀的场景）
+- **分区键选择**：
+  - 选择经常用于查询条件的字段作为分区键
+  - 避免选择经常更新的字段作为分区键
+
+```sql
+-- 范围分区示例（按时间分区）
+CREATE TABLE articles (
+    id BIGSERIAL,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    content TEXT,
+    created_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+
+-- 创建分区
+CREATE TABLE articles_2024_q1 PARTITION OF articles
+    FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
+
+CREATE TABLE articles_2024_q2 PARTITION OF articles
+    FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
+
+-- 为每个分区创建索引
+CREATE INDEX idx_articles_2024_q1_user_id ON articles_2024_q1(user_id);
+CREATE INDEX idx_articles_2024_q2_user_id ON articles_2024_q2(user_id);
+```
+
+### 表空间设计
+
+- **表空间用途**：
+  - 将不同用途的数据存储在不同的物理位置
+  - 优化 I/O 性能
+  - 便于数据管理
+- **表空间规划**：
+  - **数据表空间**：存储表数据
+  - **索引表空间**：存储索引数据（可选，分离索引和数据）
+  - **临时表空间**：存储临时数据
+- **使用建议**：
+  - 对于大型系统，考虑将热数据和冷数据分离到不同的表空间
+  - 将索引和数据分离可以提高查询性能
+
+```sql
+-- 创建表空间
+CREATE TABLESPACE data_tablespace LOCATION '/data/postgresql/data';
+CREATE TABLESPACE index_tablespace LOCATION '/data/postgresql/index';
+
+-- 在表空间中创建表
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL
+) TABLESPACE data_tablespace;
+
+-- 在表空间中创建索引
+CREATE INDEX idx_articles_title ON articles(title) TABLESPACE index_tablespace;
+```
+
+### 连接池配置
+
+- **连接池必要性**：
+  - PostgreSQL 每个连接都会消耗内存
+  - 连接池可以复用连接，减少连接开销
+  - 推荐使用 PgBouncer 或应用层连接池
+- **连接池配置建议**：
+  - **最大连接数**：根据服务器资源设置，通常为 CPU 核心数 * 2 + 有效磁盘数
+  - **最小连接数**：保持一定数量的常驻连接
+  - **连接超时**：设置合理的连接超时时间
+  - **空闲连接回收**：定期回收空闲连接
+
+### 查询优化
+
+- **避免全表扫描**：
+  - 为查询条件字段创建索引
+  - 使用 `EXPLAIN ANALYZE` 分析查询计划
+- **使用合适的 JOIN 类型**：
+  - `INNER JOIN`：内连接
+  - `LEFT JOIN`：左连接（保留左表所有记录）
+  - `RIGHT JOIN`：右连接（保留右表所有记录）
+  - `FULL OUTER JOIN`：全外连接（保留两表所有记录）
+- **避免 SELECT ***：
+  - 只查询需要的字段
+  - 减少网络传输和内存占用
+- **使用 LIMIT**：
+  - 对于分页查询，使用 `LIMIT` 和 `OFFSET`
+  - 对于大偏移量，考虑使用游标分页
+- **使用批量操作**：
+  - 使用 `INSERT ... VALUES (...), (...), (...)` 批量插入
+  - 使用 `UPDATE ... WHERE id IN (...)` 批量更新
+  - 使用事务批量提交
+
+```sql
+-- 使用 EXPLAIN ANALYZE 分析查询
+EXPLAIN ANALYZE
+SELECT * FROM articles 
+WHERE user_id = 1 AND status = 'published' 
+ORDER BY created_at DESC 
+LIMIT 10;
+
+-- 批量插入
+INSERT INTO articles (user_id, title, content) VALUES
+    (1, 'Title 1', 'Content 1'),
+    (2, 'Title 2', 'Content 2'),
+    (3, 'Title 3', 'Content 3');
+
+-- 游标分页（避免大偏移量性能问题）
+-- 第一页
+SELECT * FROM articles WHERE id > 0 ORDER BY id LIMIT 10;
+-- 第二页（使用上一页最后一条记录的 id）
+SELECT * FROM articles WHERE id > 100 ORDER BY id LIMIT 10;
+```
+
+### 统计信息更新
+
+- **自动更新**：
+  - PostgreSQL 会自动更新统计信息
+  - 可以通过 `autovacuum` 进程自动维护
+- **手动更新**：
+  - 对于大表，在大量数据变更后手动更新统计信息
+  - 使用 `ANALYZE` 命令更新统计信息
+  - 使用 `VACUUM` 命令回收空间和更新统计信息
+
+```sql
+-- 更新表的统计信息
+ANALYZE articles;
+
+-- 更新整个数据库的统计信息
+ANALYZE;
+
+-- 回收空间并更新统计信息
+VACUUM ANALYZE articles;
+
+-- 完整清理（需要排他锁，谨慎使用）
+VACUUM FULL articles;
+```
+
+## 元数据配置
+
+### 表注释
+
+- 每个表必须添加注释，说明表的用途、业务含义
+- 注释应清晰、简洁，便于理解和维护
+
+```sql
+COMMENT ON TABLE users IS '用户表，存储系统用户的基本信息，包括用户名、邮箱、密码等';
+COMMENT ON TABLE articles IS '文章表，存储用户发布的文章内容，支持草稿、发布、下架等状态';
+COMMENT ON TABLE comments IS '评论表，存储用户对文章的评论，支持多级回复';
+```
+
+### 字段注释
+
+- 每个字段都应添加注释，说明字段的用途、取值范围、业务规则
+- 对于枚举类型字段，注释中应说明所有可能的取值
+- 对于外键字段，注释中应说明关联的表和关系
+
+```sql
+COMMENT ON COLUMN users.id IS '用户唯一标识符，自增主键';
+COMMENT ON COLUMN users.username IS '用户名，唯一，3-50个字符';
+COMMENT ON COLUMN users.email IS '邮箱地址，唯一，用于登录和通知';
+COMMENT ON COLUMN users.is_active IS '用户是否激活，TRUE表示激活，FALSE表示未激活';
+COMMENT ON COLUMN users.status IS '用户状态：active-活跃，inactive-非活跃，suspended-已暂停';
+COMMENT ON COLUMN users.created_at IS '用户创建时间，自动设置为当前时间';
+COMMENT ON COLUMN users.updated_at IS '用户更新时间，每次更新时自动更新';
+
+COMMENT ON COLUMN articles.user_id IS '文章作者ID，外键关联users表';
+COMMENT ON COLUMN articles.status IS '文章状态：draft-草稿，published-已发布，archived-已归档';
+```
+
+### 索引注释
+
+- 为重要的索引添加注释，说明索引的用途和查询场景
+- 帮助理解索引的设计意图
+
+```sql
+COMMENT ON INDEX idx_articles_user_id IS '文章作者索引，用于快速查询用户的所有文章';
+COMMENT ON INDEX idx_articles_user_id_status_created_at IS '复合索引，用于用户文章列表查询，支持按状态筛选和按时间排序';
+COMMENT ON INDEX idx_users_active_email IS '活跃用户邮箱索引，部分索引，仅索引is_active为TRUE的用户';
+```
+
+### 约束注释
+
+- 为重要的约束添加注释，说明约束的业务规则
+- 特别是检查约束，应详细说明约束条件
+
+```sql
+COMMENT ON CONSTRAINT ck_users_age ON users IS '用户年龄检查约束，确保年龄在0-150之间';
+COMMENT ON CONSTRAINT ck_users_status ON users IS '用户状态检查约束，确保状态值为：active、inactive、suspended之一';
+COMMENT ON CONSTRAINT fk_articles_user_id ON articles IS '文章作者外键约束，关联users表，删除用户时级联删除文章';
+```
+
+### 视图注释
+
+- 为视图添加注释，说明视图的用途和查询逻辑
+
+```sql
+CREATE VIEW active_users AS
+SELECT id, username, email, created_at
+FROM users
+WHERE is_active = TRUE;
+
+COMMENT ON VIEW active_users IS '活跃用户视图，仅包含is_active为TRUE的用户基本信息';
+```
+
+### 函数注释
+
+- 为函数和存储过程添加注释，说明函数的用途、参数、返回值
+- 使用 `COMMENT ON FUNCTION` 添加注释
+
+```sql
+CREATE OR REPLACE FUNCTION get_user_articles(p_user_id BIGINT)
+RETURNS TABLE(id BIGINT, title VARCHAR, created_at TIMESTAMP) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT a.id, a.title, a.created_at
+    FROM articles a
+    WHERE a.user_id = p_user_id
+    ORDER BY a.created_at DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_user_articles(BIGINT) IS 
+    '获取指定用户的所有文章，按创建时间倒序排列，返回文章ID、标题和创建时间';
+```
+
+## 数据类型规范
+
+### 数值类型
+
+- **整数类型选择**：
+  - 小范围整数（-32768 到 32767）：`SMALLINT`
+  - 标准整数（-2147483648 到 2147483647）：`INTEGER` 或 `INT`（推荐用于 ID 和计数）
+  - 大整数（-9223372036854775808 到 9223372036854775807）：`BIGINT`（推荐用于自增主键）
+- **精确数值类型**：
+  - 金额、百分比等需要精确计算的场景：`NUMERIC(p, s)` 或 `DECIMAL(p, s)`
+  - 示例：`NUMERIC(10, 2)` 表示最多10位数字，其中2位小数
+- **浮点类型**：
+  - 不推荐用于需要精确计算的场景
+  - 适用于科学计算、统计等场景
+
+```sql
+-- 金额字段使用 NUMERIC
+CREATE TABLE orders (
+    id BIGSERIAL PRIMARY KEY,
+    amount NUMERIC(10, 2) NOT NULL,  -- 金额，精确到分
+    discount_rate NUMERIC(5, 2) DEFAULT 0.00  -- 折扣率，精确到百分之一
+);
+```
+
+### 字符串类型
+
+- **VARCHAR vs TEXT**：
+  - 有明确长度限制的字段：使用 `VARCHAR(n)`
+  - 长度不确定或较长的字段：使用 `TEXT`
+  - 避免使用 `CHAR(n)`，除非确实需要固定长度
+- **字符集**：
+  - 默认使用 UTF-8 编码（`UTF8`）
+  - 确保数据库、表、字段都使用 UTF-8 编码
+
+```sql
+-- 字符串类型选择示例
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,      -- 用户名，有长度限制
+    email VARCHAR(100) NOT NULL,        -- 邮箱，有长度限制
+    bio TEXT,                           -- 个人简介，长度不确定
+    avatar_url VARCHAR(500)            -- 头像URL，有长度限制但较长
+);
+```
+
+### 日期时间类型
+
+- **TIMESTAMP vs TIMESTAMPTZ**：
+  - 不需要时区信息：使用 `TIMESTAMP`
+  - 需要时区信息：使用 `TIMESTAMPTZ`（推荐，避免时区问题）
+- **时间字段命名**：
+  - 创建时间：`created_at`
+  - 更新时间：`updated_at`
+  - 删除时间：`deleted_at`（软删除）
+  - 过期时间：`expires_at`
+- **默认值**：
+  - 创建时间：`DEFAULT CURRENT_TIMESTAMP`
+  - 更新时间：使用触发器自动更新
+
+```sql
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    published_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ
+);
+```
+
+### 布尔类型
+
+- 使用 `BOOLEAN` 类型，不要使用 `INTEGER` 或 `CHAR(1)`
+- 字段命名使用 `is_`、`has_`、`can_` 等前缀
+- 设置合理的默认值
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_verified BOOLEAN DEFAULT FALSE,
+    has_email_verified BOOLEAN DEFAULT FALSE,
+    can_post_articles BOOLEAN DEFAULT TRUE
+);
+```
+
+### JSON 类型
+
+- 推荐使用 `JSONB` 而不是 `JSON`
+- `JSONB` 支持索引和高效查询
+- 适用于存储结构化但不需要固定 schema 的数据
+- 可以为 JSONB 字段创建 GIN 索引以提高查询性能
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    profile JSONB,  -- 用户扩展信息，如个人设置、偏好等
+    metadata JSONB  -- 元数据，如标签、分类等
+);
+
+-- 为 JSONB 字段创建 GIN 索引
+CREATE INDEX idx_users_profile ON users USING GIN (profile);
+CREATE INDEX idx_users_metadata ON users USING GIN (metadata);
+
+-- JSONB 查询示例
+SELECT * FROM users WHERE profile->>'city' = 'Beijing';
+SELECT * FROM users WHERE metadata ? 'premium';
+```
+
+### 数组类型
+
+- 适用于存储多个值的场景
+- 注意查询性能，避免在大数组上频繁查询
+- 可以为数组字段创建 GIN 索引
+
+```sql
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    tags TEXT[],  -- 标签数组
+    category_ids BIGINT[]  -- 分类ID数组
+);
+
+-- 为数组字段创建 GIN 索引
+CREATE INDEX idx_articles_tags ON articles USING GIN (tags);
+
+-- 数组查询示例
+SELECT * FROM articles WHERE 'golang' = ANY(tags);
+SELECT * FROM articles WHERE 1 = ANY(category_ids);
+```
+
+### UUID 类型
+
+- 适用于分布式系统的主键
+- 使用 `gen_random_uuid()` 函数生成 UUID
+- 可以为 UUID 字段创建 B-tree 索引
+
+```sql
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id BIGINT NOT NULL,
+    token VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- UUID 查询示例
+SELECT * FROM sessions WHERE id = '550e8400-e29b-41d4-a716-446655440000'::UUID;
+```
+
+## 安全规范
+
+### 权限管理
+
+- **最小权限原则**：
+  - 应用程序使用专用数据库用户，不要使用超级用户
+  - 为不同模块创建不同的数据库用户
+  - 只授予必要的权限
+- **角色管理**：
+  - 使用角色（ROLE）管理权限
+  - 为不同功能创建不同的角色
+  - 将用户分配到相应的角色
+- **权限分类**：
+  - `SELECT`：查询权限
+  - `INSERT`：插入权限
+  - `UPDATE`：更新权限
+  - `DELETE`：删除权限
+  - `USAGE`：使用权限（用于序列、函数等）
+  - `EXECUTE`：执行权限（用于函数、存储过程）
+
+```sql
+-- 创建应用程序用户
+CREATE USER app_user WITH PASSWORD 'secure_password';
+
+-- 创建只读用户
+CREATE USER readonly_user WITH PASSWORD 'secure_password';
+
+-- 授予权限
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+
+-- 授予只读权限
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;
+
+-- 创建角色
+CREATE ROLE article_manager;
+GRANT SELECT, INSERT, UPDATE, DELETE ON articles TO article_manager;
+GRANT SELECT, INSERT, UPDATE, DELETE ON comments TO article_manager;
+
+-- 将用户分配到角色
+GRANT article_manager TO app_user;
+```
+
+### 敏感数据加密
+
+- **密码存储**：
+  - 使用哈希算法（如 bcrypt、argon2）存储密码
+  - 不要在数据库中存储明文密码
+  - 使用加盐哈希提高安全性
+- **敏感信息加密**：
+  - 对于敏感信息（如身份证号、银行卡号），考虑使用加密存储
+  - 使用 PostgreSQL 的 `pgcrypto` 扩展进行加密
+  - 或使用应用层加密
+
+```sql
+-- 启用 pgcrypto 扩展
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- 加密存储示例（不推荐在数据库层加密，建议在应用层处理）
+-- 这里仅作为示例
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,  -- 使用应用层哈希算法
+    encrypted_data BYTEA  -- 加密数据（如需要）
+);
+```
+
+### SQL 注入防护
+
+- **参数化查询**：
+  - 始终使用参数化查询，不要拼接 SQL 字符串
+  - 使用预编译语句（Prepared Statements）
+- **输入验证**：
+  - 在应用层验证和清理用户输入
+  - 使用白名单验证输入格式
+- **最小权限**：
+  - 应用程序用户只授予必要的权限
+  - 避免使用超级用户执行应用程序查询
+
+```sql
+-- ❌ 错误：SQL 注入风险
+-- SELECT * FROM users WHERE username = '$username';
+
+-- ✅ 正确：参数化查询（在应用层使用）
+-- SELECT * FROM users WHERE username = $1;
+
+-- 在应用层使用参数化查询示例（Go 语言）
+-- db.Query("SELECT * FROM users WHERE username = $1", username)
+```
+
+## 迁移管理
+
+### 迁移文件命名
+
+- 使用时间戳和描述性名称
+- 格式：`YYYYMMDDHHMMSS_description.sql`
+- 示例：`20240102120000_create_users_table.sql`、`20240102130000_add_email_index_to_users.sql`
+
+### 迁移脚本编写
+
+- **可逆性**：
+  - 每个迁移脚本应该包含升级和回滚逻辑
+  - 或分别创建升级和回滚脚本
+- **事务性**：
+  - 使用事务确保迁移的原子性
+  - 对于不支持事务的操作（如 `CREATE INDEX CONCURRENTLY`），需要特殊处理
+- **幂等性**：
+  - 迁移脚本应该是幂等的，可以安全地重复执行
+  - 使用 `IF NOT EXISTS`、`IF EXISTS` 等条件判断
+
+```sql
+-- 迁移脚本示例
+BEGIN;
+
+-- 创建表
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- 添加注释
+COMMENT ON TABLE users IS '用户表';
+COMMENT ON COLUMN users.id IS '用户ID';
+COMMENT ON COLUMN users.username IS '用户名';
+COMMENT ON COLUMN users.email IS '邮箱';
+
+COMMIT;
+
+-- 回滚脚本示例
+BEGIN;
+
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+
+COMMIT;
+```
+
+### 回滚策略
+
+- **备份策略**：
+  - 在执行迁移前备份数据库
+  - 对于生产环境，使用数据库备份工具（如 `pg_dump`）
+- **测试策略**：
+  - 在测试环境先执行迁移
+  - 验证迁移脚本的正确性
+  - 测试回滚脚本
+- **分阶段迁移**：
+  - 对于大型迁移，分阶段执行
+  - 每个阶段完成后验证数据正确性
+- **监控和日志**：
+  - 记录迁移执行日志
+  - 监控迁移过程中的性能影响
+
+```bash
+# 备份数据库
+pg_dump -h localhost -U postgres -d lncms_production > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 执行迁移
+psql -h localhost -U postgres -d lncms_production -f migration.sql
+
+# 验证迁移结果
+psql -h localhost -U postgres -d lncms_production -c "SELECT * FROM users LIMIT 1;"
+```
+
+## 总结
+
+本文档定义了 PostgreSQL 数据库设计的完整规范，包括：
+
+1. **命名规范**：统一的命名约定，确保代码可读性和可维护性
+2. **表结构设计**：合理的字段类型选择、主键外键设计、约束设计
+3. **索引设计**：高效的索引策略，提高查询性能
+4. **性能优化**：分区表、表空间、连接池、查询优化等性能优化方法
+5. **元数据配置**：完整的注释体系，提高代码可理解性
+6. **数据类型规范**：合理的数据类型选择，确保数据准确性和性能
+7. **安全规范**：权限管理、数据加密、SQL 注入防护等安全措施
+8. **迁移管理**：规范的迁移脚本编写和管理流程
+
+遵循这些规范可以确保数据库设计的合理性、性能优化和可维护性，为项目的长期发展奠定坚实基础。

@@ -1,0 +1,863 @@
+---
+globs: ["**/*.go", "**/api/**", "**/handler/**", "**/controller/**", "**/route/**"]
+description: "API 设计规范规则 - 遵循 OpenAPI 3.1.1 规范，使用 Envelope 响应格式，包含 meta、data、errors 结构，支持分页和链接"
+alwaysApply: true
+---
+
+# API 设计规范
+
+本文档定义了项目中的 API 设计规范，所有 API 接口都应遵循 OpenAPI 3.1.1 规范，使用统一的 Envelope 响应格式。
+
+**重要提示：所有 API 响应必须使用 Envelope 格式，包含 meta、data、errors 三个部分。所有错误消息、元数据描述等文本内容必须使用中文。**
+
+## OpenAPI 3.1.1 规范要求
+
+### 基本要求
+
+- **所有 API 必须符合 OpenAPI 3.1.1 规范**
+- API 文档应使用 OpenAPI 3.1.1 格式编写
+- 使用标准的 HTTP 状态码
+- 使用标准的 HTTP 方法（GET、POST、PUT、DELETE、PATCH）
+- 请求和响应必须使用 JSON 格式
+
+### API 版本控制
+
+- **使用 URL 路径进行版本控制**：`/api/v1/...`
+- 版本号格式：`v1`、`v2`、`v3` 等
+- 新版本应尽量保持向后兼容
+- 废弃的 API 应提前通知，并在文档中标注废弃时间
+
+```go
+// 好的做法：版本化 API 路径
+GET /api/v1/users
+POST /api/v1/users
+GET /api/v1/users/{id}
+PUT /api/v1/users/{id}
+DELETE /api/v1/users/{id}
+
+// 不好的做法：无版本控制
+GET /users
+POST /users
+```
+
+## Envelope 响应格式
+
+### 基本结构
+
+**所有 API 响应必须使用 Envelope 格式**，包含以下三个部分：
+
+1. **meta**：响应元数据，包含请求信息、时间戳、分页信息等
+2. **data**：实际返回的数据内容
+3. **errors**：错误信息（仅在发生错误时存在）
+
+### Envelope 结构定义
+
+```go
+// Envelope 响应结构
+type Envelope struct {
+    Meta   Meta        `json:"meta"`              // 元数据
+    Data   interface{} `json:"data"`              // 数据内容（可为 null）
+    Errors []Error     `json:"errors"`             // 错误信息数组
+    Links  *Links      `json:"links,omitempty"`  // 链接信息（仅在有分页时存在）
+}
+
+// Meta 元数据结构
+type Meta struct {
+    Success   bool        `json:"success"`              // 请求是否成功
+    Code      int         `json:"code"`                 // 响应代码（0 表示成功）
+    Message   string      `json:"message"`              // 响应消息
+    Timestamp string      `json:"timestamp"`            // 响应时间戳（ISO 8601 格式，UTC）
+    RequestID string      `json:"request_id"`           // 请求唯一标识符
+    Pagination *Pagination `json:"pagination,omitempty"` // 分页信息（仅在有分页时存在）
+}
+
+// Pagination 分页信息
+type Pagination struct {
+    Page        int  `json:"page"`         // 当前页码（从 1 开始）
+    Limit       int  `json:"limit"`        // 每页数量
+    Total       int  `json:"total"`        // 总记录数
+    Pages       int  `json:"pages"`        // 总页数
+    HasNext     bool `json:"has_next"`     // 是否有下一页
+    HasPrevious bool `json:"has_previous"`  // 是否有上一页
+}
+
+// Links 链接信息（在 Envelope 根级别）
+type Links struct {
+    Self  string  `json:"self"`  // 当前页链接
+    First string  `json:"first"` // 第一页链接
+    Next  *string `json:"next"`  // 下一页链接（可为 null）
+    Last  string  `json:"last"`  // 最后一页链接
+    Prev  *string `json:"prev"`  // 上一页链接（可为 null）
+}
+
+// Error 错误信息
+type Error struct {
+    Code    string `json:"code"`    // 错误代码
+    Message string `json:"message"` // 错误消息（必须使用中文）
+    Field   string `json:"field,omitempty"` // 错误字段（如果适用）
+}
+```
+
+### 成功响应示例
+
+#### 单个资源响应
+
+```json
+{
+  "meta": {
+    "success": true,
+    "code": 0,
+    "message": "ok",
+    "timestamp": "2026-01-02T19:19:25Z",
+    "request_id": "req_abc123"
+  },
+  "data": {
+    "id": 123,
+    "username": "john_doe",
+    "email": "john@example.com"
+  },
+  "errors": []
+}
+```
+
+#### 列表响应（无分页）
+
+```json
+{
+  "meta": {
+    "success": true,
+    "code": 0,
+    "message": "ok",
+    "timestamp": "2026-01-02T19:19:25Z",
+    "request_id": "req_abc123"
+  },
+  "data": [
+    {
+      "id": 1,
+      "username": "user1",
+      "email": "user1@example.com"
+    },
+    {
+      "id": 2,
+      "username": "user2",
+      "email": "user2@example.com"
+    }
+  ],
+  "errors": []
+}
+```
+
+#### 列表响应（有分页）
+
+```json
+{
+  "meta": {
+    "success": true,
+    "code": 0,
+    "message": "ok",
+    "timestamp": "2026-01-02T19:19:25Z",
+    "request_id": "req_def456",
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 100,
+      "pages": 5,
+      "has_next": true,
+      "has_previous": false
+    }
+  },
+  "data": [
+    {
+      "id": 123,
+      "username": "john_doe"
+    }
+  ],
+  "errors": [],
+  "links": {
+    "self": "/api/v1/users?page=1&limit=20",
+    "first": "/api/v1/users?page=1&limit=20",
+    "next": "/api/v1/users?page=2&limit=20",
+    "last": "/api/v1/users?page=5&limit=20",
+    "prev": null
+  }
+}
+```
+
+### 错误响应示例
+
+#### 单个错误
+
+```json
+{
+  "meta": {
+    "success": false,
+    "code": 404,
+    "message": "用户不存在",
+    "timestamp": "2026-01-02T19:19:25Z",
+    "request_id": "req_abc123"
+  },
+  "data": null,
+  "errors": [
+    {
+      "code": "USER_NOT_FOUND",
+      "message": "用户不存在"
+    }
+  ]
+}
+```
+
+#### 多个错误（验证错误）
+
+```json
+{
+  "meta": {
+    "success": false,
+    "code": 422,
+    "message": "验证失败",
+    "timestamp": "2026-01-02T19:19:25Z",
+    "request_id": "req_abc123"
+  },
+  "data": null,
+  "errors": [
+    {
+      "code": "VALIDATION_ERROR",
+      "message": "用户名长度必须在3-20个字符之间",
+      "field": "username"
+    },
+    {
+      "code": "VALIDATION_ERROR",
+      "message": "邮箱格式不正确",
+      "field": "email"
+    }
+  ]
+}
+```
+
+## 分页规范
+
+### 分页参数
+
+- **page**：页码，从 1 开始（默认值：1）
+- **limit**：每页数量（默认值：20，最大值：100）
+
+```go
+// 分页请求参数
+type PaginationParams struct {
+    Page  int `form:"page" query:"page"`   // 页码，默认 1
+    Limit int `form:"limit" query:"limit"` // 每页数量，默认 20，最大 100
+}
+
+// 验证分页参数
+func ValidatePaginationParams(page, limit int) (int, int) {
+    if page < 1 {
+        page = 1
+    }
+    if limit < 1 {
+        limit = 20
+    }
+    if limit > 100 {
+        limit = 100
+    }
+    return page, limit
+}
+```
+
+### 分页响应
+
+分页信息必须包含在 `meta.pagination` 中，链接信息必须包含在 `links` 中（在 Envelope 根级别）。
+
+```go
+// 构建分页响应
+func BuildPaginationResponse(page, limit, total int, baseURL string) (*Pagination, *Links) {
+    pages := (total + limit - 1) / limit // 向上取整
+    hasNext := page < pages
+    hasPrevious := page > 1
+    
+    pagination := &Pagination{
+        Page:        page,
+        Limit:       limit,
+        Total:       total,
+        Pages:       pages,
+        HasNext:     hasNext,
+        HasPrevious: hasPrevious,
+    }
+    
+    links := &Links{
+        Self:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page, limit),
+        First: fmt.Sprintf("%s?page=1&limit=%d", baseURL, limit),
+        Last:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, pages, limit),
+    }
+    
+    if hasNext {
+        nextURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page+1, limit)
+        links.Next = &nextURL
+    }
+    
+    if hasPrevious {
+        prevURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page-1, limit)
+        links.Prev = &prevURL
+    }
+    
+    return pagination, links
+}
+```
+
+### 分页链接生成
+
+- **self**：当前页链接，必须存在
+- **first**：第一页链接，必须存在
+- **last**：最后一页链接，必须存在
+- **prev**：上一页链接，如果当前页不是第一页则存在，否则为 `null`
+- **next**：下一页链接，如果当前页不是最后一页则存在，否则为 `null`
+
+```go
+// 好的做法：生成完整的分页链接
+func GeneratePaginationLinks(baseURL string, page, limit, pages int) *Links {
+    links := &Links{
+        Self:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page, limit),
+        First: fmt.Sprintf("%s?page=1&limit=%d", baseURL, limit),
+        Last:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, pages, limit),
+    }
+    
+    if page > 1 {
+        prevURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page-1, limit)
+        links.Prev = &prevURL
+    }
+    
+    if page < pages {
+        nextURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page+1, limit)
+        links.Next = &nextURL
+    }
+    
+    return links
+}
+```
+
+## HTTP 状态码规范
+
+### 标准状态码使用
+
+- **200 OK**：请求成功，用于 GET、PUT、PATCH 请求
+- **201 Created**：资源创建成功，用于 POST 请求
+- **204 No Content**：请求成功但无返回内容，用于 DELETE 请求
+- **400 Bad Request**：请求参数错误
+- **401 Unauthorized**：未认证或认证失败
+- **403 Forbidden**：已认证但无权限
+- **404 Not Found**：资源不存在
+- **422 Unprocessable Entity**：请求格式正确但语义错误（验证失败）
+- **429 Too Many Requests**：请求频率过高
+- **500 Internal Server Error**：服务器内部错误
+- **503 Service Unavailable**：服务不可用
+
+```go
+// 状态码使用示例
+func HandleGetUser(c *gin.Context) {
+    user, err := getUserByID(userID)
+    if err != nil {
+        if errors.Is(err, ErrUserNotFound) {
+            c.JSON(http.StatusNotFound, Envelope{
+                Meta:   buildErrorMeta(c, http.StatusNotFound, "用户不存在"),
+                Data:   nil,
+                Errors: []Error{{Code: "USER_NOT_FOUND", Message: "用户不存在"}},
+            })
+            return
+        }
+        c.JSON(http.StatusInternalServerError, Envelope{
+            Meta:   buildErrorMeta(c, http.StatusInternalServerError, "服务器内部错误"),
+            Data:   nil,
+            Errors: []Error{{Code: "INTERNAL_ERROR", Message: "服务器内部错误"}},
+        })
+        return
+    }
+    
+    c.JSON(http.StatusOK, Envelope{
+        Meta:   buildSuccessMeta(c),
+        Data:   user,
+        Errors: []Error{},
+    })
+}
+```
+
+## 请求规范
+
+### 请求头
+
+- **Content-Type**：`application/json`（POST、PUT、PATCH 请求）
+- **Accept**：`application/json`
+- **Authorization**：`Bearer {token}`（需要认证的请求）
+
+### 请求参数
+
+- **查询参数**：使用小写字母和下划线，如 `user_id`、`created_at`
+- **路径参数**：使用小写字母和下划线，如 `/api/v1/users/{user_id}`
+- **请求体**：使用 JSON 格式，字段名使用小写字母和下划线
+
+```go
+// 好的做法：统一的参数命名
+type CreateUserRequest struct {
+    Username string `json:"username" binding:"required"`
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required,min=8"`
+}
+
+// 不好的做法：使用驼峰命名
+type BadCreateUserRequest struct {
+    Username string `json:"userName"` // 错误：应使用下划线
+    Email    string `json:"email"`
+}
+```
+
+## 错误处理规范
+
+### 错误代码规范
+
+- **错误代码使用大写字母和下划线**：如 `USER_NOT_FOUND`、`VALIDATION_ERROR`
+- **错误消息必须使用中文**
+- **错误代码应该具有描述性**，便于客户端处理
+
+```go
+// 错误代码定义
+const (
+    ErrCodeUserNotFound    = "USER_NOT_FOUND"
+    ErrCodeValidationError = "VALIDATION_ERROR"
+    ErrCodeUnauthorized    = "UNAUTHORIZED"
+    ErrCodeForbidden       = "FORBIDDEN"
+    ErrCodeInternalError   = "INTERNAL_ERROR"
+)
+
+// 错误响应构建
+func BuildErrorResponse(code, message string, field string) Envelope {
+    return Envelope{
+        Meta: buildMeta(nil),
+        Data: nil,
+        Errors: []Error{
+            {
+                Code:    code,
+                Message: message,
+                Field:   field,
+            },
+        },
+    }
+}
+```
+
+### 错误消息规范
+
+- **所有错误消息必须使用中文**
+- **错误消息应该清晰、具体**，包含足够的上下文信息
+- **验证错误应包含字段名**，便于客户端定位问题
+
+```go
+// 好的做法：清晰的中文错误消息
+if len(username) < 3 {
+    return BuildErrorResponse(
+        ErrCodeValidationError,
+        "用户名长度必须在3-20个字符之间",
+        "username",
+    )
+}
+
+// 不好的做法：英文错误消息
+if len(username) < 3 {
+    return BuildErrorResponse(
+        ErrCodeValidationError,
+        "Username must be between 3 and 20 characters",
+        "username",
+    )
+}
+```
+
+## 元数据配置规范
+
+### Request ID
+
+- **每个请求必须生成唯一的 Request ID**
+- 使用 UUID v4 格式
+- Request ID 应在请求开始时生成，并在整个请求生命周期中使用
+- Request ID 应记录在日志中，便于问题追踪
+
+```go
+// 生成 Request ID
+func GenerateRequestID() string {
+    return uuid.New().String()
+}
+
+// 在中间件中设置 Request ID
+func RequestIDMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        requestID := c.GetHeader("X-Request-ID")
+        if requestID == "" {
+            requestID = GenerateRequestID()
+        }
+        c.Set("request_id", requestID)
+        c.Header("X-Request-ID", requestID)
+        c.Next()
+    }
+}
+```
+
+### 时间戳
+
+- **时间戳使用 ISO 8601 格式**：`YYYY-MM-DDTHH:MM:SSZ`（UTC 时区）
+- **时区使用 UTC**（Z 后缀）
+- 时间戳应精确到秒级别
+
+```go
+// 生成时间戳（UTC）
+func GenerateTimestamp() string {
+    return time.Now().UTC().Format(time.RFC3339)
+}
+
+// 示例输出：2026-01-02T19:19:25Z
+```
+
+### 响应代码
+
+- **code**：响应代码，0 表示成功，非 0 表示失败
+- **success**：布尔值，表示请求是否成功
+- **message**：响应消息，成功时通常为 "ok"，失败时描述错误原因
+
+## 响应构建辅助函数
+
+### 成功响应构建
+
+```go
+// 构建成功响应
+func BuildSuccessResponse(c *gin.Context, data interface{}) Envelope {
+    return Envelope{
+        Meta:   buildSuccessMeta(c),
+        Data:   data,
+        Errors: []Error{},
+    }
+}
+
+// 构建分页响应
+func BuildPaginatedResponse(c *gin.Context, data interface{}, page, limit, total int) Envelope {
+    pages := (total + limit - 1) / limit
+    baseURL := c.Request.URL.Path
+    
+    pagination := &Pagination{
+        Page:        page,
+        Limit:       limit,
+        Total:       total,
+        Pages:       pages,
+        HasNext:     page < pages,
+        HasPrevious: page > 1,
+    }
+    
+    links := &Links{
+        Self:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page, limit),
+        First: fmt.Sprintf("%s?page=1&limit=%d", baseURL, limit),
+        Last:  fmt.Sprintf("%s?page=%d&limit=%d", baseURL, pages, limit),
+    }
+    
+    if page > 1 {
+        prevURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page-1, limit)
+        links.Prev = &prevURL
+    }
+    
+    if page < pages {
+        nextURL := fmt.Sprintf("%s?page=%d&limit=%d", baseURL, page+1, limit)
+        links.Next = &nextURL
+    }
+    
+    return Envelope{
+        Meta:   buildSuccessMetaWithPagination(c, pagination),
+        Data:   data,
+        Errors: []Error{},
+        Links:  links,
+    }
+}
+```
+
+### 错误响应构建
+
+```go
+// 构建错误响应
+func BuildErrorResponse(c *gin.Context, httpCode int, errCode, message string, field string) Envelope {
+    return Envelope{
+        Meta: buildErrorMeta(c, httpCode, message),
+        Data: nil,
+        Errors: []Error{
+            {
+                Code:    errCode,
+                Message: message,
+                Field:   field,
+            },
+        },
+    }
+}
+
+// 构建多个错误响应
+func BuildMultipleErrorsResponse(c *gin.Context, httpCode int, message string, errors []Error) Envelope {
+    return Envelope{
+        Meta:   buildErrorMeta(c, httpCode, message),
+        Data:   nil,
+        Errors: errors,
+    }
+}
+```
+
+### Meta 构建
+
+```go
+// 构建成功 Meta
+func buildSuccessMeta(c *gin.Context) Meta {
+    requestID, _ := c.Get("request_id")
+    if requestID == nil {
+        requestID = GenerateRequestID()
+    }
+    
+    return Meta{
+        Success:   true,
+        Code:      0,
+        Message:   "ok",
+        Timestamp: GenerateTimestamp(),
+        RequestID: requestID.(string),
+    }
+}
+
+// 构建带分页的成功 Meta
+func buildSuccessMetaWithPagination(c *gin.Context, pagination *Pagination) Meta {
+    meta := buildSuccessMeta(c)
+    meta.Pagination = pagination
+    return meta
+}
+
+// 构建错误 Meta
+func buildErrorMeta(c *gin.Context, code int, message string) Meta {
+    requestID, _ := c.Get("request_id")
+    if requestID == nil {
+        requestID = GenerateRequestID()
+    }
+    
+    return Meta{
+        Success:   false,
+        Code:      code,
+        Message:   message,
+        Timestamp: GenerateTimestamp(),
+        RequestID: requestID.(string),
+    }
+}
+```
+
+## OpenAPI 文档规范
+
+### 基本结构
+
+```yaml
+openapi: 3.1.1
+info:
+  title: API 文档
+  version: 1.0.0
+  description: API 接口文档
+servers:
+  - url: https://api.example.com/api/v1
+    description: 生产环境
+paths:
+  /users:
+    get:
+      summary: 获取用户列表
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 成功响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+```
+
+### Schema 定义
+
+```yaml
+components:
+  schemas:
+    
+    Meta:
+      type: object
+      required:
+        - success
+        - code
+        - message
+        - timestamp
+        - request_id
+      properties:
+        success:
+          type: boolean
+        code:
+          type: integer
+          description: 响应代码，0表示成功，非0表示失败
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    
+    Pagination:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+        - pages
+        - has_next
+        - has_previous
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+        pages:
+          type: integer
+          minimum: 0
+        has_next:
+          type: boolean
+        has_previous:
+          type: boolean
+    
+    Envelope:
+      type: object
+      required:
+        - meta
+        - data
+        - errors
+      properties:
+        meta:
+          $ref: '#/components/schemas/Meta'
+        data:
+          type: object
+          nullable: true
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/Error'
+        links:
+          $ref: '#/components/schemas/Links'
+    
+    Links:
+      type: object
+      required:
+        - self
+        - first
+        - last
+      properties:
+        self:
+          type: string
+          format: uri
+        first:
+          type: string
+          format: uri
+        last:
+          type: string
+          format: uri
+        next:
+          type: string
+          format: uri
+          nullable: true
+        prev:
+          type: string
+          format: uri
+          nullable: true
+    
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        field:
+          type: string
+          nullable: true
+```
+
+## 最佳实践
+
+### 1. 统一响应格式
+
+- **所有 API 响应必须使用 Envelope 格式**
+- 即使发生错误，也要使用 Envelope 格式
+- 不要直接返回数据或错误，必须包装在 Envelope 中
+
+```go
+// 好的做法
+func GetUser(c *gin.Context) {
+    user, err := getUserByID(userID)
+    if err != nil {
+        c.JSON(http.StatusNotFound, BuildErrorResponse(c, http.StatusNotFound, ErrCodeUserNotFound, "用户不存在", ""))
+        return
+    }
+    c.JSON(http.StatusOK, BuildSuccessResponse(c, user))
+}
+
+// 不好的做法
+func BadGetUser(c *gin.Context) {
+    user, err := getUserByID(userID)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"}) // 错误：未使用 Envelope 格式
+        return
+    }
+    c.JSON(http.StatusOK, user) // 错误：未使用 Envelope 格式
+}
+```
+
+### 2. 合理使用分页
+
+- **列表接口应支持分页**
+- 分页信息必须包含在 `meta.pagination` 中
+- 链接信息必须包含在 `links` 中（在 Envelope 根级别）
+- 默认每页数量为 20，最大为 100
+- 分页参数使用 `limit` 而不是 `per_page`
+
+### 3. 错误处理
+
+- **所有错误必须使用 Envelope 格式返回**
+- 错误消息必须使用中文
+- 验证错误应包含字段名
+- 使用合适的 HTTP 状态码
+
+### 4. 元数据完整性
+
+- **每个响应必须包含完整的元数据**
+- Request ID 必须唯一且可追踪
+- 时间戳必须准确
+- API 版本必须明确
+
+## 总结
+
+遵循以上 API 设计规范可以确保 API 的一致性、可维护性和易用性。在开发 API 时，应该：
+
+1. **始终使用 Envelope 响应格式**：包含 meta、data、errors 三个部分，分页时包含 links
+2. **符合 OpenAPI 3.1.1 规范**：使用标准的 API 文档格式
+3. **合理配置元数据**：meta 包含 success、code、message、timestamp、request_id，分页时包含 pagination
+4. **支持分页**：分页信息在 meta.pagination 中，链接在 links 中（根级别）
+5. **统一错误处理**：使用 Envelope 格式返回错误，错误消息使用中文
+6. **使用标准 HTTP 状态码**：根据实际情况选择合适的状态码
+7. **保持一致性**：所有 API 接口应遵循相同的规范和格式
+
+**API 设计规范是项目长期维护的基础，所有 API 接口都必须严格遵循本规范要求。**

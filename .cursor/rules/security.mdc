@@ -1,0 +1,1035 @@
+---
+globs: ["**/*.go", "**/*.js", "**/*.ts", "**/*.php", "**/*.py", "**/*.java", "**/config/**", "**/.env*", "**/routes/**", "**/middleware/**"]
+description: "应用安全开发规范规则 - 遵循安全开发最佳实践，防范常见安全漏洞，确保应用安全性和数据保护"
+alwaysApply: true
+---
+
+# 应用安全开发规范
+
+本文档定义了项目中的应用安全开发规范，所有代码都应遵循这些安全规则，确保应用的安全性和数据保护。
+
+**重要提示：安全是应用开发的核心要求，所有开发人员必须严格遵循本规范。任何违反安全规范的行为都可能导致严重的安全漏洞。**
+
+## 输入验证和清理
+
+### 基本原则
+
+- **永远不要信任用户输入**：所有来自用户、外部系统或不可信源的输入都必须进行验证和清理
+- **白名单验证优于黑名单**：使用白名单验证允许的值，而不是黑名单过滤禁止的值
+- **在应用层和数据库层都进行验证**：多层验证提高安全性
+- **验证失败时返回通用错误消息**：避免泄露系统内部信息
+
+### 输入验证规则
+
+#### 字符串验证
+
+- 验证字符串长度（最小长度、最大长度）
+- 验证字符集（只允许特定字符）
+- 验证格式（邮箱、URL、电话号码等）
+- 移除或转义危险字符
+
+```go
+// 好的做法：使用白名单验证
+func ValidateUsername(username string) error {
+    if len(username) < 3 || len(username) > 20 {
+        return errors.New("用户名长度必须在3-20个字符之间")
+    }
+    // 只允许字母、数字和下划线
+    matched, _ := regexp.MatchString(`^[a-zA-Z0-9_]+$`, username)
+    if !matched {
+        return errors.New("用户名只能包含字母、数字和下划线")
+    }
+    return nil
+}
+
+// 不好的做法：使用黑名单过滤
+func BadValidateUsername(username string) error {
+    // 错误：黑名单可能遗漏某些危险字符
+    if strings.Contains(username, "<") || strings.Contains(username, ">") {
+        return errors.New("用户名不能包含 < 或 >")
+    }
+    return nil
+}
+```
+
+#### 数值验证
+
+- 验证数值范围（最小值、最大值）
+- 验证数值类型（整数、浮点数）
+- 防止整数溢出
+
+```go
+// 好的做法：验证数值范围
+func ValidateAge(age int) error {
+    if age < 0 || age > 150 {
+        return errors.New("年龄必须在0-150之间")
+    }
+    return nil
+}
+
+// 好的做法：防止整数溢出
+func SafeAdd(a, b int64) (int64, error) {
+    if a > math.MaxInt64-b {
+        return 0, errors.New("加法运算结果溢出")
+    }
+    return a + b, nil
+}
+```
+
+#### 文件上传验证
+
+- 验证文件类型（使用 MIME 类型，不要仅依赖文件扩展名）
+- 验证文件大小
+- 验证文件名（移除路径分隔符和特殊字符）
+- 将上传文件存储在安全位置（不在 Web 根目录）
+- 对上传文件进行病毒扫描
+
+```go
+// 好的做法：验证文件上传
+func ValidateFileUpload(file *multipart.FileHeader) error {
+    // 验证文件大小（例如：最大 10MB）
+    maxSize := int64(10 * 1024 * 1024)
+    if file.Size > maxSize {
+        return errors.New("文件大小不能超过10MB")
+    }
+    
+    // 验证文件类型（使用 MIME 类型）
+    allowedTypes := map[string]bool{
+        "image/jpeg": true,
+        "image/png":  true,
+        "image/gif":  true,
+    }
+    if !allowedTypes[file.Header.Get("Content-Type")] {
+        return errors.New("不支持的文件类型")
+    }
+    
+    // 验证文件名
+    filename := filepath.Base(file.Filename)
+    if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+        return errors.New("无效的文件名")
+    }
+    
+    return nil
+}
+```
+
+### 输出编码
+
+- **对所有输出进行编码**：防止 XSS 攻击
+- **根据上下文选择合适的编码方式**：HTML、URL、JavaScript、CSS 等不同上下文需要不同的编码
+- **使用框架提供的编码函数**：不要手动实现编码逻辑
+
+```go
+// 好的做法：使用 HTML 转义
+import "html"
+
+func RenderUserContent(content string) string {
+    // 转义 HTML 特殊字符
+    return html.EscapeString(content)
+}
+
+// 好的做法：使用 URL 编码
+import "net/url"
+
+func BuildURL(path string, params map[string]string) string {
+    u, _ := url.Parse(path)
+    q := u.Query()
+    for k, v := range params {
+        q.Set(k, url.QueryEscape(v))
+    }
+    u.RawQuery = q.Encode()
+    return u.String()
+}
+```
+
+## 身份认证和授权
+
+### 身份认证
+
+#### 密码安全
+
+- **使用强密码策略**：
+  - 最小长度：至少 8 个字符（推荐 12 个字符）
+  - 包含大小写字母、数字和特殊字符
+  - 禁止使用常见密码和字典词
+- **密码存储**：
+  - 永远不要存储明文密码
+  - 使用安全的哈希算法（如 bcrypt、argon2、scrypt）
+  - 使用盐值（salt）增加安全性
+  - 使用适当的成本因子（work factor）
+
+```go
+// 好的做法：使用 bcrypt 哈希密码
+import "golang.org/x/crypto/bcrypt"
+
+func HashPassword(password string) (string, error) {
+    // 使用成本因子 12（可根据性能要求调整）
+    hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+    if err != nil {
+        return "", fmt.Errorf("密码哈希失败: %w", err)
+    }
+    return string(hash), nil
+}
+
+func VerifyPassword(hashedPassword, password string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+    return err == nil
+}
+
+// 不好的做法：使用弱哈希算法
+import "crypto/sha256"
+
+func BadHashPassword(password string) string {
+    // 错误：SHA-256 不适合用于密码哈希（没有盐值，计算速度快）
+    hash := sha256.Sum256([]byte(password))
+    return hex.EncodeToString(hash[:])
+}
+```
+
+#### 会话管理
+
+- **使用安全的会话标识符**：
+  - 使用加密安全的随机数生成器生成会话 ID
+  - 会话 ID 长度至少 128 位（16 字节）
+  - 会话 ID 应该不可预测
+- **会话超时**：
+  - 设置合理的会话超时时间（推荐 15-30 分钟不活动后过期）
+  - 实现绝对超时（即使活动也会过期）
+  - 用户登出时立即销毁会话
+- **会话固定防护**：
+  - 用户登录成功后重新生成会话 ID
+  - 使用 HTTPS 传输会话 Cookie
+  - 设置 Cookie 的 `HttpOnly`、`Secure` 和 `SameSite` 属性
+
+```go
+// 好的做法：生成安全的会话 ID
+import (
+    "crypto/rand"
+    "encoding/hex"
+)
+
+func GenerateSessionID() (string, error) {
+    bytes := make([]byte, 16) // 128 位
+    if _, err := rand.Read(bytes); err != nil {
+        return "", fmt.Errorf("生成会话ID失败: %w", err)
+    }
+    return hex.EncodeToString(bytes), nil
+}
+
+// 好的做法：设置安全的 Cookie
+func SetSessionCookie(w http.ResponseWriter, sessionID string) {
+    http.SetCookie(w, &http.Cookie{
+        Name:     "session_id",
+        Value:    sessionID,
+        HttpOnly: true,  // 防止 JavaScript 访问
+        Secure:   true,  // 仅通过 HTTPS 传输
+        SameSite: http.SameSiteStrictMode, // 防止 CSRF
+        MaxAge:   1800, // 30 分钟
+        Path:     "/",
+    })
+}
+```
+
+#### 多因素认证（MFA）
+
+- 对于敏感操作，实施多因素认证
+- 支持 TOTP（基于时间的一次性密码）、短信验证码、邮件验证码等
+- 在用户登录、密码修改、敏感操作时要求 MFA
+
+### 授权
+
+#### 最小权限原则
+
+- **用户只应获得执行其任务所需的最小权限**
+- **角色分离**：区分普通用户、管理员、超级管理员等角色
+- **权限检查**：在每个需要权限的操作前进行权限验证
+
+```go
+// 好的做法：基于角色的访问控制（RBAC）
+type Role string
+
+const (
+    RoleUser       Role = "user"
+    RoleAdmin      Role = "admin"
+    RoleSuperAdmin Role = "super_admin"
+)
+
+func HasPermission(userRole Role, requiredRole Role) bool {
+    roleHierarchy := map[Role]int{
+        RoleUser:       1,
+        RoleAdmin:      2,
+        RoleSuperAdmin: 3,
+    }
+    return roleHierarchy[userRole] >= roleHierarchy[requiredRole]
+}
+
+// 好的做法：在操作前检查权限
+func DeleteUser(currentUser *User, targetUserID int64) error {
+    // 检查权限：只有管理员可以删除用户
+    if !HasPermission(currentUser.Role, RoleAdmin) {
+        return errors.New("权限不足：需要管理员权限")
+    }
+    
+    // 执行删除操作
+    return deleteUserFromDB(targetUserID)
+}
+```
+
+#### 资源级授权
+
+- **验证用户对资源的访问权限**：不仅检查角色，还要检查用户是否拥有该资源
+- **防止水平权限提升**：用户不能访问其他用户的资源
+- **防止垂直权限提升**：普通用户不能执行管理员操作
+
+```go
+// 好的做法：资源级权限检查
+func GetUserArticle(userID, articleID int64) (*Article, error) {
+    article, err := getArticleFromDB(articleID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 检查用户是否拥有该文章
+    if article.UserID != userID {
+        return nil, errors.New("无权访问该文章")
+    }
+    
+    return article, nil
+}
+
+// 不好的做法：缺少资源级权限检查
+func BadGetUserArticle(userID, articleID int64) (*Article, error) {
+    // 错误：没有检查用户是否拥有该文章
+    return getArticleFromDB(articleID)
+}
+```
+
+## SQL 注入防护
+
+### 基本原则
+
+- **永远不要拼接 SQL 字符串**：使用参数化查询（Prepared Statements）
+- **使用 ORM 框架**：ORM 框架通常提供参数化查询支持
+- **输入验证**：即使使用参数化查询，也要验证输入
+- **最小权限**：数据库用户只授予必要的权限
+
+### 参数化查询
+
+```go
+// 好的做法：使用参数化查询
+func GetUserByID(db *sql.DB, userID int64) (*User, error) {
+    query := "SELECT id, username, email FROM users WHERE id = $1"
+    row := db.QueryRow(query, userID)
+    
+    var user User
+    err := row.Scan(&user.ID, &user.Username, &user.Email)
+    if err != nil {
+        return nil, fmt.Errorf("查询用户失败: %w", err)
+    }
+    return &user, nil
+}
+
+// 不好的做法：字符串拼接（SQL 注入风险）
+func BadGetUserByID(db *sql.DB, userID string) (*User, error) {
+    // 错误：如果 userID 包含恶意 SQL 代码，会导致 SQL 注入
+    query := fmt.Sprintf("SELECT id, username, email FROM users WHERE id = %s", userID)
+    row := db.QueryRow(query)
+    // ...
+}
+```
+
+### 动态查询构建
+
+- 如果必须构建动态查询，使用白名单验证列名和表名
+- 不要直接使用用户输入作为列名或表名
+
+```go
+// 好的做法：使用白名单验证列名
+var allowedSortColumns = map[string]bool{
+    "id":         true,
+    "username":   true,
+    "email":      true,
+    "created_at": true,
+}
+
+func GetUsersSorted(db *sql.DB, sortBy string) ([]*User, error) {
+    // 验证排序列名
+    if !allowedSortColumns[sortBy] {
+        return nil, errors.New("无效的排序列")
+    }
+    
+    // 使用参数化查询，列名来自白名单
+    query := fmt.Sprintf("SELECT id, username, email FROM users ORDER BY %s", sortBy)
+    rows, err := db.Query(query)
+    // ...
+}
+```
+
+## XSS（跨站脚本攻击）防护
+
+### 存储型 XSS
+
+- **对所有用户输入进行编码**：在存储到数据库前进行验证和清理
+- **输出时再次编码**：在渲染到页面时进行 HTML 编码
+
+```go
+// 好的做法：输出编码
+import "html"
+
+func RenderComment(comment string) string {
+    // 转义 HTML 特殊字符
+    return html.EscapeString(comment)
+}
+
+// 在模板中使用自动转义（如果使用模板引擎）
+// {{.Comment}} 会自动转义 HTML 字符
+```
+
+### 反射型 XSS
+
+- **验证和清理 URL 参数**：所有 URL 参数在输出前都要进行编码
+- **使用框架的自动转义功能**：大多数模板引擎默认开启自动转义
+
+### DOM 型 XSS
+
+- **避免使用 `innerHTML`**：使用 `textContent` 或 `innerText` 代替
+- **验证和清理客户端输入**：在 JavaScript 中也要验证用户输入
+- **使用内容安全策略（CSP）**：限制页面可以加载的资源
+
+```javascript
+// 好的做法：使用 textContent 而不是 innerHTML
+function displayUserInput(userInput) {
+    const element = document.getElementById('output');
+    // 安全：textContent 会自动转义
+    element.textContent = userInput;
+}
+
+// 不好的做法：使用 innerHTML（XSS 风险）
+function badDisplayUserInput(userInput) {
+    const element = document.getElementById('output');
+    // 危险：如果 userInput 包含恶意脚本，会被执行
+    element.innerHTML = userInput;
+}
+```
+
+## CSRF（跨站请求伪造）防护
+
+### 基本原则
+
+- **使用 CSRF Token**：为每个表单和敏感操作生成唯一的 CSRF Token
+- **验证 CSRF Token**：在处理请求时验证 Token 的有效性
+- **使用 SameSite Cookie**：设置 Cookie 的 `SameSite` 属性
+
+### CSRF Token 实现
+
+```go
+// 好的做法：生成和验证 CSRF Token
+import (
+    "crypto/rand"
+    "encoding/hex"
+    "time"
+)
+
+type CSRFManager struct {
+    tokens map[string]time.Time
+    mu     sync.RWMutex
+}
+
+func (m *CSRFManager) GenerateToken() (string, error) {
+    bytes := make([]byte, 16)
+    if _, err := rand.Read(bytes); err != nil {
+        return "", err
+    }
+    token := hex.EncodeToString(bytes)
+    
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.tokens[token] = time.Now().Add(1 * time.Hour) // Token 1 小时过期
+    
+    return token, nil
+}
+
+func (m *CSRFManager) ValidateToken(token string) bool {
+    m.mu.RLock()
+    defer m.mu.RUnlock()
+    
+    expiry, exists := m.tokens[token]
+    if !exists {
+        return false
+    }
+    
+    if time.Now().After(expiry) {
+        delete(m.tokens, token)
+        return false
+    }
+    
+    return true
+}
+
+// 在表单中包含 CSRF Token
+func RenderForm(w http.ResponseWriter, csrfToken string) {
+    fmt.Fprintf(w, `
+        <form method="POST" action="/submit">
+            <input type="hidden" name="csrf_token" value="%s">
+            <input type="text" name="data">
+            <button type="submit">提交</button>
+        </form>
+    `, html.EscapeString(csrfToken))
+}
+
+// 在处理请求时验证 CSRF Token
+func HandleSubmit(w http.ResponseWriter, r *http.Request, csrfManager *CSRFManager) {
+    token := r.FormValue("csrf_token")
+    if !csrfManager.ValidateToken(token) {
+        http.Error(w, "无效的 CSRF Token", http.StatusForbidden)
+        return
+    }
+    
+    // 处理表单提交
+    // ...
+}
+```
+
+## 敏感数据处理
+
+### 敏感信息识别
+
+以下信息被视为敏感信息，需要特殊处理：
+- 密码和认证凭据
+- 个人身份信息（PII）：身份证号、手机号、邮箱、地址等
+- 财务信息：银行卡号、支付信息等
+- 健康信息
+- 其他受法律保护的信息
+
+### 敏感信息存储
+
+- **加密存储**：敏感信息在存储前应进行加密
+- **使用强加密算法**：使用 AES-256 等强加密算法
+- **密钥管理**：使用安全的密钥管理系统，不要硬编码密钥
+- **访问控制**：限制对敏感数据的访问
+
+```go
+// 好的做法：加密敏感信息
+import (
+    "crypto/aes"
+    "crypto/cipher"
+    "crypto/rand"
+    "io"
+)
+
+func EncryptSensitiveData(plaintext []byte, key []byte) ([]byte, error) {
+    block, err := aes.NewCipher(key)
+    if err != nil {
+        return nil, err
+    }
+    
+    gcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return nil, err
+    }
+    
+    nonce := make([]byte, gcm.NonceSize())
+    if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+        return nil, err
+    }
+    
+    ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+    return ciphertext, nil
+}
+```
+
+### 敏感信息传输
+
+- **使用 HTTPS**：所有敏感信息必须通过 HTTPS 传输
+- **不在 URL 中传递敏感信息**：URL 可能被记录在日志、浏览器历史等地方
+- **不在错误消息中泄露敏感信息**：错误消息应该是通用的
+
+```go
+// 好的做法：使用 HTTPS
+func SetupHTTPServer() {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/login", handleLogin)
+    
+    // 强制使用 HTTPS
+    server := &http.Server{
+        Addr:    ":443",
+        Handler: mux,
+        TLSConfig: &tls.Config{
+            MinVersion: tls.VersionTLS12, // 最低 TLS 1.2
+        },
+    }
+    
+    log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
+}
+
+// 不好的做法：在 URL 中传递敏感信息
+func BadGetUser(token string) {
+    // 错误：Token 会出现在 URL 中，可能被记录
+    url := fmt.Sprintf("https://api.example.com/user?token=%s", token)
+    // ...
+}
+```
+
+### 敏感信息日志
+
+- **不要在日志中记录敏感信息**：密码、Token、信用卡号等
+- **记录前进行脱敏**：如果必须记录，进行脱敏处理（如只显示后4位）
+
+```go
+// 好的做法：日志脱敏
+func MaskSensitiveData(data string) string {
+    if len(data) <= 4 {
+        return "****"
+    }
+    return "****" + data[len(data)-4:]
+}
+
+func LogUserAction(userID int64, action string) {
+    // 好的做法：不记录敏感信息
+    log.Printf("用户 %d 执行了操作: %s", userID, action)
+}
+
+// 不好的做法：在日志中记录敏感信息
+func BadLogUserAction(userID int64, password string) {
+    // 错误：密码不应该出现在日志中
+    log.Printf("用户 %d 登录，密码: %s", userID, password)
+}
+```
+
+## 文件上传安全
+
+### 文件上传验证
+
+- **验证文件类型**：使用 MIME 类型验证，不要仅依赖文件扩展名
+- **验证文件大小**：限制上传文件的大小
+- **验证文件内容**：检查文件的实际内容，而不仅仅是扩展名
+- **重命名上传文件**：使用随机文件名，避免文件名冲突和路径遍历攻击
+- **存储位置**：将上传文件存储在 Web 根目录之外，通过应用程序提供访问
+
+```go
+// 好的做法：安全的文件上传处理
+func HandleFileUpload(w http.ResponseWriter, r *http.Request) {
+    // 限制请求体大小
+    r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
+    
+    file, header, err := r.FormFile("file")
+    if err != nil {
+        http.Error(w, "文件上传失败", http.StatusBadRequest)
+        return
+    }
+    defer file.Close()
+    
+    // 验证文件大小
+    if header.Size > 10<<20 {
+        http.Error(w, "文件大小不能超过10MB", http.StatusBadRequest)
+        return
+    }
+    
+    // 读取文件头部验证文件类型
+    buffer := make([]byte, 512)
+    if _, err := file.Read(buffer); err != nil {
+        http.Error(w, "读取文件失败", http.StatusInternalServerError)
+        return
+    }
+    file.Seek(0, 0) // 重置文件指针
+    
+    contentType := http.DetectContentType(buffer)
+    allowedTypes := map[string]bool{
+        "image/jpeg": true,
+        "image/png":  true,
+        "image/gif":  true,
+    }
+    if !allowedTypes[contentType] {
+        http.Error(w, "不支持的文件类型", http.StatusBadRequest)
+        return
+    }
+    
+    // 生成安全的文件名
+    filename := generateSecureFilename(header.Filename)
+    filepath := filepath.Join("/secure/upload/dir", filename)
+    
+    // 保存文件
+    dst, err := os.Create(filepath)
+    if err != nil {
+        http.Error(w, "保存文件失败", http.StatusInternalServerError)
+        return
+    }
+    defer dst.Close()
+    
+    if _, err := io.Copy(dst, file); err != nil {
+        http.Error(w, "保存文件失败", http.StatusInternalServerError)
+        return
+    }
+    
+    // 返回文件访问 URL（不直接暴露文件路径）
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "url": "/api/files/" + filename,
+    })
+}
+
+func generateSecureFilename(originalName string) string {
+    // 生成随机文件名
+    ext := filepath.Ext(originalName)
+    randomBytes := make([]byte, 16)
+    rand.Read(randomBytes)
+    return hex.EncodeToString(randomBytes) + ext
+}
+```
+
+## API 安全
+
+### API 认证
+
+- **使用标准认证方式**：OAuth 2.0、JWT、API Key 等
+- **Token 过期**：设置合理的 Token 过期时间
+- **Token 刷新**：实现 Token 刷新机制
+
+```go
+// 好的做法：JWT Token 认证
+import "github.com/golang-jwt/jwt/v5"
+
+type Claims struct {
+    UserID int64  `json:"user_id"`
+    Role   string `json:"role"`
+    jwt.RegisteredClaims
+}
+
+func GenerateJWT(userID int64, role string, secretKey []byte) (string, error) {
+    claims := Claims{
+        UserID: userID,
+        Role:   role,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+            IssuedAt:  jwt.NewNumericDate(time.Now()),
+        },
+    }
+    
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString(secretKey)
+}
+
+func ValidateJWT(tokenString string, secretKey []byte) (*Claims, error) {
+    token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+        return secretKey, nil
+    })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+        return claims, nil
+    }
+    
+    return nil, errors.New("无效的 Token")
+}
+```
+
+### API 限流
+
+- **实施 API 限流**：防止滥用和 DoS 攻击
+- **基于 IP 的限流**：限制每个 IP 的请求频率
+- **基于用户的限流**：限制每个用户的请求频率
+- **使用令牌桶或漏桶算法**：实现平滑的限流
+
+```go
+// 好的做法：API 限流中间件
+import "golang.org/x/time/rate"
+
+type RateLimiter struct {
+    limiter *rate.Limiter
+}
+
+func NewRateLimiter(rps int) *RateLimiter {
+    return &RateLimiter{
+        limiter: rate.NewLimiter(rate.Limit(rps), rps),
+    }
+}
+
+func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if !rl.limiter.Allow() {
+            http.Error(w, "请求过于频繁，请稍后再试", http.StatusTooManyRequests)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+### API 版本控制
+
+- **使用 API 版本控制**：通过 URL 路径或请求头指定 API 版本
+- **向后兼容**：新版本应该尽量保持向后兼容
+- **废弃通知**：提前通知 API 的废弃计划
+
+## 配置管理
+
+### 敏感配置
+
+- **不要将敏感配置硬编码在代码中**：使用环境变量或配置文件
+- **使用 `.env` 文件**：将敏感配置存储在 `.env` 文件中，并添加到 `.gitignore`
+- **使用密钥管理服务**：对于生产环境，使用专业的密钥管理服务（如 AWS Secrets Manager、HashiCorp Vault）
+
+```go
+// 好的做法：从环境变量读取配置
+import "os"
+
+type Config struct {
+    DatabaseURL string
+    SecretKey  string
+    APIKey     string
+}
+
+func LoadConfig() (*Config, error) {
+    config := &Config{
+        DatabaseURL: os.Getenv("DATABASE_URL"),
+        SecretKey:   os.Getenv("SECRET_KEY"),
+        APIKey:      os.Getenv("API_KEY"),
+    }
+    
+    if config.DatabaseURL == "" {
+        return nil, errors.New("DATABASE_URL 环境变量未设置")
+    }
+    if config.SecretKey == "" {
+        return nil, errors.New("SECRET_KEY 环境变量未设置")
+    }
+    
+    return config, nil
+}
+
+// 不好的做法：硬编码敏感信息
+func BadLoadConfig() *Config {
+    return &Config{
+        DatabaseURL: "postgres://user:password@localhost/db",
+        SecretKey:   "my-secret-key-12345", // 错误：硬编码密钥
+        APIKey:      "api-key-12345",
+    }
+}
+```
+
+### 默认配置
+
+- **使用安全的默认配置**：默认配置应该是安全的
+- **禁用不必要的功能**：默认禁用可能有安全风险的功能
+- **最小权限默认**：默认使用最小权限
+
+## 依赖管理
+
+### 依赖安全
+
+- **定期更新依赖**：及时更新依赖包以修复安全漏洞
+- **使用依赖扫描工具**：使用工具（如 `npm audit`、`go list -json -m all`）扫描依赖漏洞
+- **审查依赖**：在添加新依赖前，审查其安全性和维护状态
+- **使用锁定文件**：使用 `package-lock.json`、`go.sum` 等锁定依赖版本
+
+```bash
+# 好的做法：定期检查依赖漏洞
+# Go
+go list -json -m all | nancy sleuth
+
+# Node.js
+npm audit
+npm audit fix
+
+# Python
+pip-audit
+```
+
+### 依赖最小化
+
+- **只安装必要的依赖**：减少攻击面
+- **避免使用未维护的包**：选择活跃维护的依赖包
+
+## 日志和监控
+
+### 安全日志
+
+- **记录安全相关事件**：登录失败、权限拒绝、异常请求等
+- **不要记录敏感信息**：密码、Token、信用卡号等
+- **日志完整性**：确保日志不被篡改（使用数字签名或只追加模式）
+
+```go
+// 好的做法：记录安全事件
+func LogSecurityEvent(eventType string, userID int64, details map[string]interface{}) {
+    log.Printf("[SECURITY] 类型: %s, 用户ID: %d, 详情: %+v", eventType, userID, details)
+}
+
+// 记录登录失败
+func LogFailedLogin(userID int64, ip string) {
+    LogSecurityEvent("登录失败", userID, map[string]interface{}{
+        "ip": ip,
+        "time": time.Now(),
+    })
+}
+
+// 记录权限拒绝
+func LogPermissionDenied(userID int64, resource string, action string) {
+    LogSecurityEvent("权限拒绝", userID, map[string]interface{}{
+        "resource": resource,
+        "action":   action,
+        "time":     time.Now(),
+    })
+}
+```
+
+### 安全监控
+
+- **监控异常行为**：异常登录、大量请求、异常访问模式等
+- **设置告警**：对安全事件设置实时告警
+- **定期审计**：定期审查日志和访问记录
+
+## 错误处理
+
+### 错误消息安全
+
+- **不要泄露系统信息**：错误消息应该是通用的，不泄露系统内部信息
+- **记录详细错误**：在服务器日志中记录详细错误，但不要返回给用户
+- **使用错误代码**：使用错误代码而不是详细错误消息
+
+```go
+// 好的做法：安全的错误处理
+func HandleLogin(w http.ResponseWriter, r *http.Request) {
+    username := r.FormValue("username")
+    password := r.FormValue("password")
+    
+    user, err := authenticateUser(username, password)
+    if err != nil {
+        // 记录详细错误（仅用于日志）
+        log.Printf("登录失败 - 用户名: %s, 错误: %v", username, err)
+        
+        // 返回通用错误消息（不泄露详细信息）
+        http.Error(w, "用户名或密码错误", http.StatusUnauthorized)
+        return
+    }
+    
+    // 登录成功
+    // ...
+}
+
+// 不好的做法：泄露系统信息
+func BadHandleLogin(w http.ResponseWriter, r *http.Request) {
+    username := r.FormValue("username")
+    password := r.FormValue("password")
+    
+    user, err := authenticateUser(username, password)
+    if err != nil {
+        // 错误：泄露了系统内部信息（数据库错误、用户不存在等）
+        http.Error(w, fmt.Sprintf("登录失败: %v", err), http.StatusUnauthorized)
+        return
+    }
+    // ...
+}
+```
+
+## HTTPS 和传输安全
+
+### HTTPS 配置
+
+- **强制使用 HTTPS**：所有生产环境必须使用 HTTPS
+- **使用强 TLS 配置**：最低 TLS 1.2，推荐 TLS 1.3
+- **禁用弱加密算法**：禁用 SSL 3.0、TLS 1.0、TLS 1.1
+- **使用有效的 SSL 证书**：使用由受信任的 CA 签发的证书
+
+```go
+// 好的做法：配置安全的 TLS
+func SetupSecureServer() {
+    tlsConfig := &tls.Config{
+        MinVersion:               tls.VersionTLS12,
+        PreferServerCipherSuites: true,
+        CipherSuites: []uint16{
+            tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+            tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        },
+    }
+    
+    server := &http.Server{
+        Addr:      ":443",
+        TLSConfig: tlsConfig,
+    }
+    
+    log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
+}
+```
+
+### HTTP 安全头
+
+- **设置安全响应头**：使用安全响应头增强安全性
+  - `Strict-Transport-Security`：强制 HTTPS
+  - `X-Content-Type-Options: nosniff`：防止 MIME 类型嗅探
+  - `X-Frame-Options: DENY`：防止点击劫持
+  - `Content-Security-Policy`：内容安全策略
+  - `X-XSS-Protection`：XSS 保护
+
+```go
+// 好的做法：设置安全响应头
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("X-Frame-Options", "DENY")
+        w.Header().Set("X-XSS-Protection", "1; mode=block")
+        w.Header().Set("Content-Security-Policy", "default-src 'self'")
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+## 安全测试
+
+### 安全测试类型
+
+- **静态代码分析**：使用工具扫描代码中的安全漏洞
+- **依赖扫描**：扫描依赖包的安全漏洞
+- **渗透测试**：定期进行渗透测试
+- **安全代码审查**：代码审查时关注安全问题
+
+### 安全测试工具
+
+```bash
+# Go 安全工具
+# gosec - 静态代码分析
+gosec ./...
+
+# npm audit - Node.js 依赖扫描
+npm audit
+
+# OWASP ZAP - 安全测试
+# 使用 OWASP ZAP 进行自动化安全测试
+```
+
+## 安全事件响应
+
+### 事件响应流程
+
+1. **检测**：及时发现安全事件
+2. **评估**：评估事件的影响和严重程度
+3. **响应**：采取适当的响应措施
+4. **恢复**：恢复正常服务
+5. **总结**：总结事件，改进安全措施
+
+### 事件响应准备
+
+- **建立事件响应团队**：明确团队成员和职责
+- **制定响应流程**：制定详细的事件响应流程
+- **准备响应工具**：准备必要的工具和资源
+- **定期演练**：定期进行安全事件演练
+
+## 总结
+
+遵循以上安全开发规范可以确保应用的安全性。在开发过程中，应该：
+
+1. **始终验证和清理用户输入**：所有用户输入都必须验证和清理
+2. **使用参数化查询**：防止 SQL 注入攻击
+3. **实施身份认证和授权**：确保只有授权用户才能访问资源
+4. **加密敏感数据**：对敏感数据进行加密存储和传输
+5. **使用 HTTPS**：所有生产环境必须使用 HTTPS
+6. **设置安全响应头**：增强应用的安全性
+7. **定期更新依赖**：及时修复安全漏洞
+8. **记录安全事件**：记录和监控安全相关事件
+9. **进行安全测试**：定期进行安全测试和代码审查
+10. **准备事件响应**：建立安全事件响应机制
+
+**安全是一个持续的过程，需要不断关注和改进。所有开发人员都应该将安全作为开发的核心要求。**

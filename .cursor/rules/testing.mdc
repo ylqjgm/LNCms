@@ -1,0 +1,915 @@
+---
+globs: ["**/*_test.go"]
+description: "Golang 单元测试规范规则 - 定义测试文件组织、测试用例编写、覆盖率要求、Mock 使用等测试规范，确保测试代码的质量和可维护性"
+alwaysApply: true
+---
+
+# Golang 单元测试规范
+
+本文档定义了项目中的 Golang 单元测试规范，包括测试文件组织、测试用例编写、覆盖率要求、Mock 使用等，确保测试代码的质量和可维护性。
+
+**重要提示：本项目要求所有测试用例描述、测试错误消息、测试注释等文本内容均使用中文。测试函数名、变量名等代码标识符保持英文，但所有面向用户的文本内容必须使用中文。**
+
+## 测试文件组织
+
+### 测试文件命名
+
+- **测试文件必须以 `_test.go` 结尾**
+- 测试文件应该与被测试文件放在同一个包中
+- 测试文件命名格式：`被测试文件名_test.go`
+- 示例：`user.go` 的测试文件应该是 `user_test.go`
+
+### 测试包命名
+
+- **单元测试使用包名 `package 包名`**（与被测试文件相同）
+- **集成测试可以使用 `package 包名_test`**（独立测试包）
+- 单元测试可以访问包内未导出的函数和变量
+- 集成测试只能访问导出的函数和变量
+
+```go
+// user_test.go - 单元测试
+package user
+
+import "testing"
+
+func TestGetUser(t *testing.T) {
+    // 可以访问 user 包内的未导出函数
+}
+
+// user_integration_test.go - 集成测试
+package user_test
+
+import (
+    "testing"
+    "yourproject/pkg/user"
+)
+
+func TestGetUserIntegration(t *testing.T) {
+    // 只能访问 user 包导出的函数
+}
+```
+
+### 测试文件结构
+
+测试文件应该按以下顺序组织：
+
+1. 包声明
+2. 导入语句
+3. 测试辅助函数和变量
+4. 测试函数
+5. 基准测试函数
+6. 示例函数
+
+```go
+package user
+
+import (
+    "testing"
+    "time"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+// 测试辅助变量
+var testUser = &User{
+    ID:       1,
+    Username: "testuser",
+    Email:    "test@example.com",
+}
+
+// 测试辅助函数
+func setupTestUser(t *testing.T) *User {
+    t.Helper()
+    return &User{
+        ID:       1,
+        Username: "testuser",
+        Email:    "test@example.com",
+    }
+}
+
+// 测试函数
+func TestGetUser(t *testing.T) {
+    // 测试代码
+}
+
+// 基准测试
+func BenchmarkGetUser(b *testing.B) {
+    // 基准测试代码
+}
+
+// 示例函数
+func ExampleGetUser() {
+    // 示例代码
+}
+```
+
+## 测试函数命名
+
+### 单元测试函数
+
+- **测试函数必须以 `Test` 开头**
+- 测试函数名应该描述被测试的功能
+- 格式：`Test函数名` 或 `Test功能描述`
+- 测试函数必须接受 `*testing.T` 参数
+
+```go
+// 好的做法
+func TestGetUser(t *testing.T) {
+    // 测试 GetUser 函数
+}
+
+func TestValidateUsername(t *testing.T) {
+    // 测试用户名验证功能
+}
+
+func TestUserCreation(t *testing.T) {
+    // 测试用户创建功能
+}
+
+// 不好的做法
+func TestUser(t *testing.T) {  // 名称太泛泛
+    // ...
+}
+
+func testGetUser(t *testing.T) {  // 错误：没有以 Test 开头
+    // ...
+}
+```
+
+### 子测试命名
+
+- 使用 `t.Run()` 创建子测试
+- 子测试名称应该清晰描述测试场景
+- **子测试名称必须使用中文**（根据项目要求）
+
+```go
+func TestValidateUsername(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantErr bool
+    }{
+        {
+            name:    "有效用户名",
+            input:   "validuser",
+            wantErr: false,
+        },
+        {
+            name:    "用户名过短",
+            input:   "ab",
+            wantErr: true,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ValidateUsername(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ValidateUsername() error = %v, wantErr %v", err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+### 基准测试函数
+
+- **基准测试函数必须以 `Benchmark` 开头**
+- 基准测试函数必须接受 `*testing.B` 参数
+- 在基准测试中使用 `b.N` 作为循环次数
+
+```go
+func BenchmarkValidateUsername(b *testing.B) {
+    username := "validusername123"
+    for i := 0; i < b.N; i++ {
+        _ = ValidateUsername(username)
+    }
+}
+
+// 对比测试
+func BenchmarkValidateUsernameRegex(b *testing.B) {
+    username := "validusername123"
+    pattern := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+    for i := 0; i < b.N; i++ {
+        _ = pattern.MatchString(username)
+    }
+}
+```
+
+### 示例函数
+
+- **示例函数必须以 `Example` 开头**
+- 示例函数不接受参数
+- 示例函数中的输出会被检查（通过 `// Output:` 注释）
+
+```go
+func ExampleGetUser() {
+    user, _ := GetUser(1)
+    fmt.Println(user.Username)
+    // Output: testuser
+}
+```
+
+## 表驱动测试
+
+### 基本原则
+
+- **优先使用表驱动测试**处理多个测试场景
+- 表驱动测试使测试用例易于添加和维护
+- 测试用例应该覆盖正常情况、边界情况和异常情况
+
+### 表驱动测试结构
+
+```go
+func TestValidateUsername(t *testing.T) {
+    tests := []struct {
+        name    string  // 测试用例名称（必须使用中文）
+        input   string  // 输入值
+        wantErr bool    // 是否期望错误
+        errMsg  string  // 期望的错误消息（可选）
+    }{
+        {
+            name:    "有效用户名",
+            input:   "validuser",
+            wantErr: false,
+        },
+        {
+            name:    "用户名过短",
+            input:   "ab",
+            wantErr: true,
+            errMsg:  "用户名长度必须在3-20个字符之间",
+        },
+        {
+            name:    "用户名过长",
+            input:   strings.Repeat("a", 21),
+            wantErr: true,
+            errMsg:  "用户名长度必须在3-20个字符之间",
+        },
+        {
+            name:    "包含非法字符",
+            input:   "user@name",
+            wantErr: true,
+            errMsg:  "用户名只能包含字母、数字和下划线",
+        },
+        {
+            name:    "空字符串",
+            input:   "",
+            wantErr: true,
+            errMsg:  "用户名不能为空",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ValidateUsername(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ValidateUsername() error = %v, wantErr %v", err, tt.wantErr)
+                return
+            }
+            if tt.wantErr && err != nil {
+                if tt.errMsg != "" && err.Error() != tt.errMsg {
+                    t.Errorf("ValidateUsername() error = %v, want %v", err.Error(), tt.errMsg)
+                }
+            }
+        })
+    }
+}
+```
+
+### 表驱动测试最佳实践
+
+- **测试用例名称要清晰**：使用中文描述测试场景
+- **包含边界情况**：测试最小值、最大值、空值等
+- **包含异常情况**：测试错误输入、无效数据等
+- **保持测试独立**：每个测试用例应该独立，不依赖其他测试用例
+- **使用 `t.Helper()`**：在辅助函数中标记，使错误信息指向正确的测试函数
+
+```go
+func validateUserHelper(t *testing.T, user *User, wantErr bool, errMsg string) {
+    t.Helper()  // 标记为辅助函数
+    err := ValidateUser(user)
+    if (err != nil) != wantErr {
+        t.Errorf("ValidateUser() error = %v, wantErr %v", err, wantErr)
+        return
+    }
+    if wantErr && err != nil && errMsg != "" && err.Error() != errMsg {
+        t.Errorf("ValidateUser() error = %v, want %v", err.Error(), errMsg)
+    }
+}
+
+func TestValidateUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        user    *User
+        wantErr bool
+        errMsg  string
+    }{
+        {
+            name: "有效用户",
+            user: &User{
+                Username: "validuser",
+                Email:    "test@example.com",
+            },
+            wantErr: false,
+        },
+        // 更多测试用例...
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            validateUserHelper(t, tt.user, tt.wantErr, tt.errMsg)
+        })
+    }
+}
+```
+
+## 测试覆盖率
+
+### 覆盖率要求
+
+- **核心业务逻辑代码覆盖率应达到 80% 以上**
+- **关键功能代码覆盖率应达到 90% 以上**
+- **工具类和辅助函数覆盖率应达到 70% 以上**
+- 使用 `go test -cover` 检查覆盖率
+
+### 生成覆盖率报告
+
+```bash
+# 生成覆盖率文件
+go test -coverprofile=coverage.out ./...
+
+# 查看覆盖率报告（HTML）
+go tool cover -html=coverage.out
+
+# 查看覆盖率报告（函数级别）
+go tool cover -func=coverage.out
+
+# 检查覆盖率是否达标
+go test -cover ./...
+```
+
+### 覆盖率分析
+
+- **关注语句覆盖率**：确保所有代码路径都被测试
+- **关注分支覆盖率**：确保所有条件分支都被测试
+- **识别未覆盖的代码**：分析为什么某些代码未被覆盖
+- **避免为了覆盖率而测试**：关注测试质量，而不是单纯追求覆盖率
+
+```go
+// 好的做法：测试所有分支
+func TestProcessUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        user    *User
+        wantErr bool
+    }{
+        {
+            name:    "正常用户",
+            user:    &User{ID: 1, Username: "user1"},
+            wantErr: false,
+        },
+        {
+            name:    "用户为空",
+            user:    nil,
+            wantErr: true,
+        },
+        {
+            name:    "用户ID无效",
+            user:    &User{ID: -1, Username: "user1"},
+            wantErr: true,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ProcessUser(tt.user)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ProcessUser() error = %v, wantErr %v", err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+## Mock 和依赖注入
+
+### Mock 原则
+
+- **使用接口进行依赖注入**：便于测试时替换依赖
+- **使用 Mock 框架**：如 `testify/mock`、`gomock` 等
+- **避免测试真实的外部依赖**：数据库、网络请求等应该被 Mock
+
+### 接口设计
+
+```go
+// 定义接口
+type UserRepository interface {
+    GetUser(id int64) (*User, error)
+    CreateUser(user *User) error
+    UpdateUser(user *User) error
+    DeleteUser(id int64) error
+}
+
+// 实现接口
+type userRepository struct {
+    db *sql.DB
+}
+
+func (r *userRepository) GetUser(id int64) (*User, error) {
+    // 数据库查询实现
+}
+
+// 服务使用接口
+type UserService struct {
+    repo UserRepository
+}
+
+func NewUserService(repo UserRepository) *UserService {
+    return &UserService{repo: repo}
+}
+
+func (s *UserService) GetUser(id int64) (*User, error) {
+    return s.repo.GetUser(id)
+}
+```
+
+### 使用 testify/mock
+
+```go
+import (
+    "testing"
+    "github.com/stretchr/testify/mock"
+)
+
+// 定义 Mock
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) GetUser(id int64) (*User, error) {
+    args := m.Called(id)
+    if args.Get(0) == nil {
+        return nil, args.Error(1)
+    }
+    return args.Get(0).(*User), args.Error(1)
+}
+
+// 使用 Mock
+func TestUserService_GetUser(t *testing.T) {
+    mockRepo := new(MockUserRepository)
+    service := NewUserService(mockRepo)
+
+    // 设置 Mock 期望
+    expectedUser := &User{ID: 1, Username: "testuser"}
+    mockRepo.On("GetUser", int64(1)).Return(expectedUser, nil)
+
+    // 执行测试
+    user, err := service.GetUser(1)
+
+    // 验证结果
+    assert.NoError(t, err)
+    assert.Equal(t, expectedUser, user)
+    mockRepo.AssertExpectations(t)
+}
+```
+
+### 使用 gomock
+
+```go
+//go:generate mockgen -source=user_repository.go -destination=mock_user_repository.go
+
+import (
+    "testing"
+    "github.com/golang/mock/gomock"
+)
+
+func TestUserService_GetUser(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    defer ctrl.Finish()
+
+    mockRepo := NewMockUserRepository(ctrl)
+    service := NewUserService(mockRepo)
+
+    // 设置 Mock 期望
+    expectedUser := &User{ID: 1, Username: "testuser"}
+    mockRepo.EXPECT().GetUser(int64(1)).Return(expectedUser, nil)
+
+    // 执行测试
+    user, err := service.GetUser(1)
+
+    // 验证结果
+    assert.NoError(t, err)
+    assert.Equal(t, expectedUser, user)
+}
+```
+
+## 测试辅助函数
+
+### 辅助函数命名
+
+- 辅助函数应该以 `setup`、`teardown`、`helper` 等前缀命名
+- 使用 `t.Helper()` 标记辅助函数
+- 辅助函数应该清晰表达其用途
+
+```go
+// 设置测试环境
+func setupTestDB(t *testing.T) *sql.DB {
+    t.Helper()
+    db, err := sql.Open("postgres", "test_connection_string")
+    if err != nil {
+        t.Fatalf("设置测试数据库失败: %v", err)
+    }
+    return db
+}
+
+// 清理测试环境
+func teardownTestDB(t *testing.T, db *sql.DB) {
+    t.Helper()
+    if err := db.Close(); err != nil {
+        t.Errorf("关闭测试数据库失败: %v", err)
+    }
+}
+
+// 创建测试数据
+func createTestUser(t *testing.T) *User {
+    t.Helper()
+    return &User{
+        ID:       1,
+        Username: "testuser",
+        Email:    "test@example.com",
+    }
+}
+```
+
+### 测试 Fixture
+
+- 使用测试 Fixture 提供可重用的测试数据
+- Fixture 应该放在 `testdata` 目录中
+- 使用 `embed` 包嵌入测试数据（Go 1.16+）
+
+```go
+//go:embed testdata/users.json
+var testUsersJSON string
+
+func loadTestUsers(t *testing.T) []*User {
+    t.Helper()
+    var users []*User
+    if err := json.Unmarshal([]byte(testUsersJSON), &users); err != nil {
+        t.Fatalf("加载测试用户数据失败: %v", err)
+    }
+    return users
+}
+```
+
+## 测试工具和断言
+
+### 使用 testify
+
+- **推荐使用 `testify/assert` 和 `testify/require`**
+- `assert`：断言失败时继续执行测试
+- `require`：断言失败时立即终止测试
+
+```go
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestGetUser(t *testing.T) {
+    user, err := GetUser(1)
+    
+    // 使用 require：如果失败，立即终止测试
+    require.NoError(t, err)
+    require.NotNil(t, user)
+    
+    // 使用 assert：如果失败，继续执行但标记测试失败
+    assert.Equal(t, "testuser", user.Username)
+    assert.Equal(t, "test@example.com", user.Email)
+}
+```
+
+### 常用断言
+
+```go
+// 相等断言
+assert.Equal(t, expected, actual)
+assert.NotEqual(t, expected, actual)
+
+// 空值断言
+assert.Nil(t, value)
+assert.NotNil(t, value)
+
+// 布尔断言
+assert.True(t, condition)
+assert.False(t, condition)
+
+// 错误断言
+assert.NoError(t, err)
+assert.Error(t, err)
+assert.EqualError(t, err, "expected error message")
+
+// 包含断言
+assert.Contains(t, slice, element)
+assert.NotContains(t, slice, element)
+
+// 长度断言
+assert.Len(t, slice, expectedLength)
+
+// 时间断言
+assert.WithinDuration(t, expected, actual, delta)
+```
+
+## 测试最佳实践
+
+### 测试独立性
+
+- **每个测试应该独立**：不依赖其他测试的执行顺序
+- **测试之间不应该共享状态**：每个测试应该设置自己的测试数据
+- **使用 `t.Parallel()` 并行执行测试**（如果测试是独立的）
+
+```go
+func TestGetUser(t *testing.T) {
+    t.Parallel()  // 允许并行执行
+    
+    // 测试代码
+}
+
+func TestCreateUser(t *testing.T) {
+    t.Parallel()  // 允许并行执行
+    
+    // 测试代码
+}
+```
+
+### 测试清理
+
+- **使用 `defer` 确保资源清理**
+- **使用 `t.Cleanup()` 注册清理函数**（Go 1.14+）
+
+```go
+func TestWithDatabase(t *testing.T) {
+    db := setupTestDB(t)
+    t.Cleanup(func() {
+        teardownTestDB(t, db)
+    })
+    
+    // 测试代码
+}
+```
+
+### 错误消息
+
+- **错误消息应该清晰、具体**
+- **错误消息必须使用中文**（根据项目要求）
+- 包含足够的上下文信息
+
+```go
+// 好的做法
+if user.ID != expectedID {
+    t.Errorf("GetUser() 返回的用户ID = %d, 期望 %d", user.ID, expectedID)
+}
+
+// 不好的做法
+if user.ID != expectedID {
+    t.Error("ID 不匹配")  // 缺少具体信息
+}
+```
+
+### 避免测试实现细节
+
+- **测试行为，而不是实现**
+- **避免测试私有函数**（除非必要）
+- **关注公共接口的测试**
+
+```go
+// 好的做法：测试公共接口
+func TestUserService_GetUser(t *testing.T) {
+    service := NewUserService(mockRepo)
+    user, err := service.GetUser(1)
+    // 验证结果
+}
+
+// 不好的做法：测试私有函数
+func TestUserService_getUserFromCache(t *testing.T) {
+    // 测试私有函数，耦合实现细节
+}
+```
+
+### 测试性能关键代码
+
+- **为性能关键的函数编写基准测试**
+- **使用 `testing.B` 进行基准测试**
+- **记录基准测试结果**，便于性能回归检测
+
+```go
+func BenchmarkValidateUsername(b *testing.B) {
+    username := "validusername123"
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        _ = ValidateUsername(username)
+    }
+}
+
+// 对比测试
+func BenchmarkValidateUsernameRegex(b *testing.B) {
+    username := "validusername123"
+    pattern := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        _ = pattern.MatchString(username)
+    }
+}
+```
+
+## 测试命令和工具
+
+### 基本测试命令
+
+```bash
+# 运行所有测试
+go test ./...
+
+# 运行当前包的测试
+go test
+
+# 运行指定包的测试
+go test ./pkg/user
+
+# 运行匹配模式的测试
+go test -run TestGetUser
+
+# 显示详细输出
+go test -v
+
+# 运行基准测试
+go test -bench=.
+
+# 运行基准测试并显示内存分配
+go test -bench=. -benchmem
+
+# 生成覆盖率报告
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# 检测竞态条件
+go test -race ./...
+```
+
+### 测试工具推荐
+
+- **testify**：断言库和 Mock 框架
+- **gomock**：代码生成的 Mock 框架
+- **httptest**：HTTP 测试工具（标准库）
+- **sqlmock**：数据库 Mock 工具
+- **testcontainers**：集成测试容器工具
+
+## 测试文件示例
+
+### 完整测试文件示例
+
+```go
+package user
+
+import (
+    "testing"
+    "time"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+// 测试辅助变量
+var (
+    testUserID   int64 = 1
+    testUsername       = "testuser"
+    testEmail          = "test@example.com"
+)
+
+// 测试辅助函数
+func setupTestUser(t *testing.T) *User {
+    t.Helper()
+    return &User{
+        ID:       testUserID,
+        Username: testUsername,
+        Email:    testEmail,
+        CreatedAt: time.Now(),
+    }
+}
+
+// 单元测试
+func TestValidateUsername(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantErr bool
+        errMsg  string
+    }{
+        {
+            name:    "有效用户名",
+            input:   "validuser",
+            wantErr: false,
+        },
+        {
+            name:    "用户名过短",
+            input:   "ab",
+            wantErr: true,
+            errMsg:  "用户名长度必须在3-20个字符之间",
+        },
+        {
+            name:    "用户名过长",
+            input:   strings.Repeat("a", 21),
+            wantErr: true,
+            errMsg:  "用户名长度必须在3-20个字符之间",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ValidateUsername(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ValidateUsername() error = %v, wantErr %v", err, tt.wantErr)
+                return
+            }
+            if tt.wantErr && err != nil && tt.errMsg != "" {
+                assert.EqualError(t, err, tt.errMsg)
+            }
+        })
+    }
+}
+
+func TestGetUser(t *testing.T) {
+    t.Parallel()
+    
+    user := setupTestUser(t)
+    
+    got, err := GetUser(user.ID)
+    require.NoError(t, err)
+    require.NotNil(t, got)
+    assert.Equal(t, user.ID, got.ID)
+    assert.Equal(t, user.Username, got.Username)
+}
+
+// 基准测试
+func BenchmarkValidateUsername(b *testing.B) {
+    username := "validusername123"
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        _ = ValidateUsername(username)
+    }
+}
+
+// 示例函数
+func ExampleGetUser() {
+    user, _ := GetUser(1)
+    fmt.Println(user.Username)
+    // Output: testuser
+}
+```
+
+## 测试审查清单
+
+编写测试时，应该检查以下项目：
+
+1. **测试覆盖**
+   - [ ] 是否覆盖了正常情况
+   - [ ] 是否覆盖了边界情况
+   - [ ] 是否覆盖了异常情况
+   - [ ] 测试覆盖率是否达标
+
+2. **测试质量**
+   - [ ] 测试是否独立，不依赖其他测试
+   - [ ] 测试名称是否清晰描述测试场景
+   - [ ] 错误消息是否清晰、具体（使用中文）
+   - [ ] 是否使用了表驱动测试（如果适用）
+
+3. **代码组织**
+   - [ ] 测试文件命名是否正确
+   - [ ] 测试函数命名是否正确
+   - [ ] 是否使用了辅助函数减少重复代码
+   - [ ] 是否使用了 `t.Helper()` 标记辅助函数
+
+4. **Mock 和依赖**
+   - [ ] 是否使用了 Mock 替代外部依赖
+   - [ ] Mock 设置是否正确
+   - [ ] 是否验证了 Mock 的调用
+
+5. **性能测试**
+   - [ ] 是否为性能关键的函数编写了基准测试
+   - [ ] 基准测试是否正确设置
+
+## 总结
+
+遵循以上单元测试规范可以确保测试代码的质量和可维护性。在编写测试时，应该：
+
+1. **使用表驱动测试**：处理多个测试场景，使测试易于维护
+2. **确保测试独立性**：每个测试应该独立，不依赖其他测试
+3. **使用 Mock**：替代外部依赖，使测试快速、可靠
+4. **达到覆盖率要求**：核心业务逻辑 80% 以上，关键功能 90% 以上
+5. **编写清晰的测试**：测试名称和错误消息应该清晰、具体（使用中文）
+6. **使用测试工具**：使用 `testify` 等工具提高测试效率
+7. **编写基准测试**：为性能关键的函数编写基准测试
+8. **保持测试简洁**：测试代码应该简洁、易读、易维护
+
+**测试是代码质量的重要保障，应该与业务代码同等重视。所有测试代码都应该遵循本规范要求。**
