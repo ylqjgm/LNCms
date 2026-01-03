@@ -159,7 +159,6 @@ docs/.doctrees/
 .temp/
 tmp/
 shrimp/
-shrimp/*
 
 # 本地开发工具
 .local/
